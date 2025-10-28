@@ -58,6 +58,7 @@ gemini_model = st.sidebar.selectbox(
     [
         "gemini-1.5-flash-latest", # Use specific model names
         "gemini-1.5-pro-latest",
+        "gemini-pro" # Fallback
     ],
     index=0
 )
@@ -85,7 +86,8 @@ def call_perplexity(query, system_prompt="Provide comprehensive, actionable insi
         "Accept": "application/json"
     }
     data = {
-        "model": "llama-3-sonar-small-32k-online", # Using a recommended online model
+        # --- FIX: Using a valid, online-enabled model ---
+        "model": "llama-3-sonar-small-32k-online", 
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": query}
@@ -102,6 +104,8 @@ def call_perplexity(query, system_prompt="Provide comprehensive, actionable insi
         )
         response.raise_for_status()
         return response.json()
+    except requests.exceptions.HTTPError as http_err:
+        return {"error": f"Perplexity API error: {http_err} - {response.text}"}
     except Exception as e:
         return {"error": f"Perplexity API error: {e}"}
 
@@ -112,8 +116,7 @@ def call_grok(messages, max_tokens=4000, temperature=0.7):
     
     headers = {
         "Authorization": f"Bearer {grok_key}",
-        "Content-Type": "application/json",
-        "x-api-key": grok_key # Some APIs might require this
+        "Content-Type": "application/json"
     }
     
     payload = {
@@ -131,7 +134,9 @@ def call_grok(messages, max_tokens=4000, temperature=0.7):
         
         if 'choices' in result and len(result['choices']) > 0:
             return result['choices'][0]['message']['content'], None
-        return None, "Unexpected response format"
+        return None, f"Unexpected response format: {result}"
+    except requests.exceptions.HTTPError as http_err:
+        return None, f"Grok API error: {http_err} - {response.text}"
     except Exception as e:
         return None, f"Grok API error: {str(e)}"
 
@@ -282,8 +287,9 @@ def export_to_docx(article_title, meta_description, sections_content, keywords):
     
     # Add meta description
     meta = doc.add_paragraph(meta_description)
-    run = meta.runs[0]
-    run.font.italic = True
+    if meta.runs:
+        run = meta.runs[0]
+        run.font.italic = True
     doc.add_paragraph()
     
     # Add keywords section
@@ -332,20 +338,23 @@ def export_to_docx(article_title, meta_description, sections_content, keywords):
             rows = table_info.get('rows', [])
             
             if headers and rows:
-                table = doc.add_table(rows=len(rows)+1, cols=len(headers))
-                table.style = 'Light Grid Accent 1'
-                
-                # Header row
-                for idx, header in enumerate(headers):
-                    cell = table.rows[0].cells[idx]
-                    cell.text = str(header)
-                    cell.paragraphs[0].runs[0].font.bold = True
-                
-                # Data rows
-                for row_idx, row in enumerate(rows):
-                    for col_idx, cell_value in enumerate(row):
-                         if col_idx < len(table.rows[row_idx+1].cells): # Avoid index out of bounds
-                            table.rows[row_idx+1].cells[col_idx].text = str(cell_value)
+                try:
+                    table = doc.add_table(rows=len(rows)+1, cols=len(headers))
+                    table.style = 'Light Grid Accent 1'
+                    
+                    # Header row
+                    for idx, header in enumerate(headers):
+                        cell = table.rows[0].cells[idx]
+                        cell.text = str(header)
+                        cell.paragraphs[0].runs[0].font.bold = True
+                    
+                    # Data rows
+                    for row_idx, row in enumerate(rows):
+                        for col_idx, cell_value in enumerate(row):
+                             if col_idx < len(table.rows[row_idx+1].cells): # Avoid index out of bounds
+                                table.rows[row_idx+1].cells[col_idx].text = str(cell_value)
+                except Exception as e:
+                    st.warning(f"Error building DOCX table: {e}")
             
         # Add infographic note
         if section.get('needs_infographic'):
@@ -687,6 +696,29 @@ with tab1:
             
             st.write(f"Showing {len(filtered_queries)} of {len(queries)} queries")
             
+            # --- ADDED: SELECT ALL FEATURE ---
+            filtered_query_ids = {f"query_{hash(q['query'])}" for q in filtered_queries}
+            
+            all_selected_initially = False
+            if filtered_query_ids: # Only check if there are queries to select
+                all_selected_initially = all(qid in st.session_state.selected_queries for qid in filtered_query_ids)
+
+            select_all = st.checkbox(
+                f"Select All ({len(filtered_queries)} filtered queries)", 
+                value=all_selected_initially, 
+                key="select_all_toggle"
+            )
+            
+            if select_all and not all_selected_initially:
+                st.session_state.selected_queries.update(filtered_query_ids)
+                st.rerun()
+            elif not select_all and all_selected_initially:
+                st.session_state.selected_queries.difference_update(filtered_query_ids)
+                st.rerun()
+            
+            st.markdown("---") # Visual separator
+            # --- END: SELECT ALL FEATURE ---
+
             # Display queries with selection
             for i, query_data in enumerate(filtered_queries):
                 query_id = f"query_{hash(query_data['query'])}"
@@ -695,12 +727,17 @@ with tab1:
                     col1, col2, col3 = st.columns([1, 6, 2])
                     
                     with col1:
+                        # --- FIX: Controlled component with rerun ---
                         is_selected = query_id in st.session_state.selected_queries
                         selected = st.checkbox("Select", value=is_selected, key=f"checkbox_{query_id}")
-                        if selected:
+                        
+                        if selected and not is_selected:
                             st.session_state.selected_queries.add(query_id)
-                        else:
+                            st.rerun()
+                        elif not selected and is_selected:
                             st.session_state.selected_queries.discard(query_id)
+                            st.rerun()
+                        # --- END FIX ---
                     
                     with col2:
                         priority_color = {'high': '🔴', 'medium': '🟡', 'low': '🟢'}.get(query_data.get('priority', 'medium'), '🟡')
@@ -724,29 +761,37 @@ with tab1:
                                         }
                                         st.rerun()
                                     else:
+                                        # --- ADDED: Error reporting ---
                                         st.error(f"Perplexity Error: {result.get('error', 'Unknown')}")
                         else:
                             st.caption("Need Perplexity Key")
-                    
             
             # Bulk research
             if st.session_state.selected_queries and perplexity_key:
                 st.markdown("---")
-                if st.button(f"🚀 Research {len(st.session_state.selected_queries)} Selected Queries", type="secondary"):
-                    selected_query_data = [
-                        q for q in queries # Search all queries
-                        if f"query_{hash(q['query'])}" in st.session_state.selected_queries
-                    ]
+                
+                # --- MODIFIED: Improved bulk research logic ---
+                total_selected = len(st.session_state.selected_queries)
+                if st.button(f"🚀 Research {total_selected} Selected Queries", type="secondary"):
+                    
+                    # Create a map of *all* queries for lookup
+                    all_queries_map = {f"query_{hash(q['query'])}": q for q in queries}
+                    
+                    selected_query_ids = list(st.session_state.selected_queries) # Get a stable list
                     
                     progress_bar = st.progress(0)
                     status_text = st.empty()
-                    total_to_research = len(selected_query_data)
+                    total_to_research = len(selected_query_ids)
                     
-                    for i, query_data in enumerate(selected_query_data):
-                        query_id = f"query_{hash(query_data['query'])}"
+                    for i, query_id in enumerate(selected_query_ids):
                         if query_id not in st.session_state.research_results:
+                            query_data = all_queries_map.get(query_id)
+                            if not query_data:
+                                continue # Should not happen, but safe
+                            
                             status_text.text(f"Researching ({i+1}/{total_to_research}): {query_data['query'][:50]}...")
                             result = call_perplexity(query_data['query'])
+                            
                             if 'choices' in result:
                                 st.session_state.research_results[query_id] = {
                                     'query': query_data['query'],
@@ -756,14 +801,17 @@ with tab1:
                                     'priority': query_data.get('priority', 'medium')
                                 }
                             else:
-                                st.error(f"Error on: {query_data['query']}")
-                            time.sleep(1) # Simple rate limiting
+                                # --- ADDED: Error reporting ---
+                                st.error(f"Error on '{query_data['query']}': {result.get('error', 'Unknown')}")
+                                
+                            time.sleep(1) # Original rate limit
                         progress_bar.progress((i + 1) / total_to_research)
                     
                     status_text.success("✅ Bulk research completed!")
                     st.session_state.selected_queries = set() # Clear selection
-                    time.sleep(2)
+                    time.sleep(2) # Show success message
                     st.rerun()
+                # --- END MODIFIED ---
 
 with tab2:
     st.header("📄 PDF Document Analyzer")
@@ -867,7 +915,7 @@ with tab2:
                                     st.write("**Research Result:**")
                                     st.info(result['choices'][0]['message']['content'])
                                 else:
-                                    st.error("Research failed.")
+                                    st.error(f"Research failed: {result.get('error')}")
         
         with col2:
             if analysis.get('enhancement_opportunities'):
@@ -882,7 +930,7 @@ with tab2:
                                     st.write("**Enhancement Data:**")
                                     st.info(result['choices'][0]['message']['content'])
                                 else:
-                                    st.error("Research failed.")
+                                    st.error(f"Research failed: {result.get('error')}")
 
 with tab3:
     st.header("✅ Fact Checker & Claim Verification")
@@ -900,7 +948,7 @@ with tab3:
                     st.write("**Verification Result:**")
                     st.info(result['choices'][0]['message']['content'])
                 else:
-                    st.error("Verification failed.")
+                    st.error(f"Verification failed: {result.get('error')}")
         elif not perplexity_key:
             st.warning("Please enter Perplexity API key")
         else:
@@ -921,7 +969,7 @@ with tab3:
                                 st.write("**Verification Result:**")
                                 st.info(result['choices'][0]['message']['content'])
                             else:
-                                st.error("Verification failed.")
+                                st.error(f"Verification failed: {result.get('error')}")
                 else:
                     st.caption("Perplexity API key required for verification")
 
@@ -1283,8 +1331,11 @@ with tab5:
                         
                         # Create dataframe for display
                         if 'rows' in table and 'headers' in table:
-                            df = pd.DataFrame(table['rows'], columns=table['headers'])
-                            st.dataframe(df, use_container_width=True, hide_index=True)
+                            try:
+                                df = pd.DataFrame(table['rows'], columns=table['headers'])
+                                st.dataframe(df, use_container_width=True, hide_index=True)
+                            except Exception as e:
+                                st.warning(f"Error displaying table: {e}")
                         else:
                             st.warning("Table format was invalid.")
                     
