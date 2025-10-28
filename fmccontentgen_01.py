@@ -734,11 +734,11 @@ with tab1:
         if st.session_state.generation_details:
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.metric("Topic", st.session_state.generation_details['topic'])
+                st.metric("Topic", st.session_state.generation_details.get('topic', 'N/A'))
             with col2:
                 st.metric("Queries Generated", len(st.session_state.fanout_results))
             with col3:
-                st.metric("Model Used", st.session_state.generation_details['model'])
+                st.metric("Model Used", st.session_state.generation_details.get('model', 'N/A'))
         
         st.divider()
         st.subheader("📋 Generated Queries")
