@@ -21,7 +21,7 @@ except ImportError:
 
 # App config
 st.set_page_config(page_title="Qforia Research Platform", layout="wide")
-st.title("SYU Content Guide")
+st.title("fmc Content Guide")
 
 # Grok API Configuration
 GROK_API_URL = "https://api.x.ai/v1/chat/completions"
