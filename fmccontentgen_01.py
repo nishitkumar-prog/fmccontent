@@ -86,8 +86,8 @@ def call_perplexity(query, system_prompt="Provide comprehensive, actionable insi
         "Accept": "application/json"
     }
     data = {
-        # --- FIX: Using a valid, online-enabled model ---
-        "model": "llama-3-sonar-small-32k-online", 
+        # --- FIX: Using the correct, cost-optimized online model ---
+        "model": "sonar-small-32k-online", 
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": query}
@@ -105,10 +105,10 @@ def call_perplexity(query, system_prompt="Provide comprehensive, actionable insi
         response.raise_for_status()
         return response.json()
     except requests.exceptions.HTTPError as http_err:
+        # Pass the full error message from Perplexity back to the UI
         return {"error": f"Perplexity API error: {http_err} - {response.text}"}
     except Exception as e:
         return {"error": f"Perplexity API error: {e}"}
-
 def call_grok(messages, max_tokens=4000, temperature=0.7):
     """Call Grok API for content generation"""
     if not grok_key:
