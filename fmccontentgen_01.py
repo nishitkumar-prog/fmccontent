@@ -146,7 +146,7 @@ def generate_content_structure_from_queries(research_data, topic, selected_queri
         if query_id in research_data:
             query_text = research_data[query_id]['query']
             sections_list.append({
-                "title": query_text,
+                "title": query_text, # CORRECT: Uses the query text directly
                 "query_id": query_id,
                 "description": f"Content based on: {query_text}",
                 "key_points": [],
@@ -191,6 +191,7 @@ def generate_section_content(section, research_context, topic, user_intent):
     if not section_research or len(section_research.strip()) < 50:
         return None, "Insufficient research data for this section"
     
+    # FIXED: Enhanced prompt to be more aggressive about data-first content
     prompt = f"""Create highly structured, data-driven content for this section.
 
 ARTICLE TOPIC: {topic}
@@ -199,49 +200,53 @@ SECTION TITLE: {section['title']}
 USER INTENT/PURPOSE:
 {user_intent}
 
+Based on the user intent, optimize the output. For example:
+- If intent is 'compare' or 'pricing', maximize tables.
+- If intent is 'how to' or 'steps', maximize numbered lists.
+- If intent is 'statistics' or 'data', maximize bullet points with numbers.
+
 RESEARCH DATA:
 {section_research}
 
 CRITICAL REQUIREMENTS:
-1. PRIORITIZE DATA OVER PROSE - Use tables, bullet points, and structured lists
-2. Extract ALL specific data points, numbers, statistics, prices, dates, percentages from research
-3. Use ONLY bullet points and numbered lists - minimize paragraph text to 1-2 sentences max per concept
-4. If research data is insufficient or unclear, return "INSUFFICIENT_DATA"
-5. Focus on comparisons, specifications, metrics, and actionable data
-6. Use H3 subheadings (###) to organize different aspects
-7. Every claim must be backed by specific data from research
-8. Format for scannability - readers should get value by skimming
-9. DO NOT add conclusions or summaries
-10. DO NOT repeat the section title
+1. ABSOLUTE PRIORITY: Data over prose. Use tables, bullet points, and structured lists.
+2. Extract ALL specific data points, numbers, statistics, prices, dates, percentages from research.
+3. MINIMIZE PARAGRAPHS. Use 1-2 sentences of prose *only* if absolutely necessary for context.
+4. If research data is insufficient or unclear, return ONLY the word "INSUFFICIENT_DATA".
+5. Focus on comparisons, specifications, metrics, and actionable data.
+6. Use H3 subheadings (###) to organize different data clusters.
+7. Every claim must be backed by specific data from research.
+8. Format for scannability.
+9. DO NOT add conclusions, summaries, or introductory fluff.
+10. DO NOT repeat the section title.
 
 CONTENT FORMAT PREFERENCE (in order):
-- Bullet points with specific data (most important)
-- Numbered steps/lists for processes
-- Short 1-2 sentence explanations only when necessary
-- Reserve paragraphs only for critical context (2-3 sentences max)
+1. Tables (if comparison data exists)
+2. Bullet points with specific data (e.g., - Metric: 55%)
+3. Numbered steps/lists for processes
+4. Short 1-2 sentence explanations (LAST RESORT)
 
 OUTPUT STRUCTURE:
 ### First Aspect
 - Data point 1: [specific number/fact]
 - Data point 2: [specific number/fact]
-- Data point 3: [specific number/fact]
 
 ### Second Aspect
 1. Step/item with specific data
 2. Step/item with specific data
-3. Step/item with specific data
 
-Write content NOW (400-600 words, markdown format, prioritize bullet points):
+Write content NOW (400-600 words, markdown format, PRIORITIZE DATA):
 """
 
     messages = [{"role": "user", "content": prompt}]
-    response, error = call_grok(messages, max_tokens=1500, temperature=0.6)
+    # FIXED: Increased token limit
+    response, error = call_grok(messages, max_tokens=4096, temperature=0.6) 
     
     if error:
         return None, error
     
     # Check if content indicates insufficient data
-    if response and "INSUFFICIENT_DATA" in response:
+    if response and "INSUFFICIENT_DATA" in response.upper():
         return None, "Insufficient data to generate accurate content"
     
     return response, None
@@ -266,7 +271,8 @@ def generate_table_content(section, research_context, user_intent):
     if not section_research or len(section_research.strip()) < 50:
         return None, "Insufficient data for table generation"
     
-    prompt = f"""Create a COMPREHENSIVE comparison table extracting ALL available data points from research.
+    # FIXED: Enhanced prompt for bigger, cleaner, data-only tables
+    prompt = f"""Create a MASSIVELY COMPREHENSIVE comparison table extracting EVERY SINGLE available data point from the research.
 
 SECTION: {section['title']}
 USER INTENT: {user_intent}
@@ -275,16 +281,16 @@ RESEARCH DATA:
 {section_research}
 
 CRITICAL REQUIREMENTS:
-1. Extract EVERY data point, statistic, price, feature, metric from the research
-2. Create 4-8 columns (more columns = better)
-3. Include 8-15 rows of ACTUAL data (more rows = better)
-4. Use specific, accurate values - NO placeholders like "Varies", "TBD", "Contact for pricing"
-5. If research lacks enough data for a proper comparison table, return "INSUFFICIENT_DATA"
-6. Make it actionable - readers should be able to compare and decide
-7. Include units (%, $, GB, days, etc.) with numbers
-8. Sort rows logically (by price, popularity, alphabetically, etc.)
+1. Extract EVERY data point, statistic, price, feature, metric, name, date, etc.
+2. Create as many columns as needed (target 5-10) to capture all distinct data types.
+3. Create as many rows as possible (target 10-20+) with ACTUAL data. More rows are better.
+4. NO PLACEHOLDERS. Do not use "Varies", "TBD", "N/A", or "Contact for pricing". If data is missing, leave the cell empty or return INSUFFICIENT_DATA.
+5. If research lacks enough structured, comparable data for a proper table, return ONLY the word "INSUFFICIENT_DATA".
+6. Make it actionable for comparison.
+7. Include units (%, $, GB, days, etc.) in the data cells or headers.
+8. Sort rows logically.
 
-TABLE TYPES TO CONSIDER:
+TABLE TYPES TO CONSIDER (based on data):
 - Feature comparison (Product A vs B vs C)
 - Pricing tiers (Plan name, Price, Features, Limits)
 - Statistical data (Year, Metric 1, Metric 2, Growth %)
@@ -309,7 +315,7 @@ JSON FORMAT:
     "headers": ["Column 1", "Column 2", "Column 3", "Column 4", "Column 5"],
     "rows": [
         ["Specific value 1", "Specific value 2", "Specific value 3", "Specific value 4", "Specific value 5"],
-        (8-15 rows with actual data)
+        (10-20+ rows with actual data)
     ]
 }}
 
@@ -317,13 +323,14 @@ Create comprehensive table NOW (return ONLY valid JSON, extract ALL available da
 """
 
     messages = [{"role": "user", "content": prompt}]
-    response, error = call_grok(messages, max_tokens=3000, temperature=0.4)  # Increased for bigger tables
+    # FIXED: Increased token limit for very large tables
+    response, error = call_grok(messages, max_tokens=8192, temperature=0.4)
     
     if error:
         return None, error
     
     # Check for insufficient data
-    if response and "INSUFFICIENT_DATA" in response:
+    if response and "INSUFFICIENT_DATA" in response.upper():
         return None, "Insufficient data for table"
     
     try:
@@ -378,7 +385,8 @@ def export_to_docx(title, meta_desc, sections, keywords):
         content = section_data['content']
         
         # Section heading (H2) - clean any markdown
-        section_title_clean = section['title'].replace('**', '').replace('*', '').replace('#', '')
+        # FIXED: More robust cleaning
+        section_title_clean = section['title'].replace('**', '').replace('*', '').replace('#', '').replace('__', '').replace('_', '')
         h2 = doc.add_heading(section_title_clean, level=2)
         h2.alignment = WD_ALIGN_PARAGRAPH.LEFT
         
@@ -391,7 +399,8 @@ def export_to_docx(title, meta_desc, sections, keywords):
             
             # H3 subheadings - remove ### and **
             if line.startswith('### '):
-                subheading_text = line.replace('### ', '').replace('**', '').replace('*', '')
+                # FIXED: More robust cleaning
+                subheading_text = line.replace('### ', '').replace('**', '').replace('*', '').replace('__', '').replace('_', '')
                 h3 = doc.add_heading(subheading_text, level=3)
                 h3.alignment = WD_ALIGN_PARAGRAPH.LEFT
             # Bullet points - remove - or *
@@ -415,7 +424,8 @@ def export_to_docx(title, meta_desc, sections, keywords):
             doc.add_paragraph()  # Spacing
             
             # Table title (H3) - clean markdown
-            table_title_clean = table_data.get('table_title', 'Data Table').replace('**', '').replace('*', '')
+            # FIXED: More robust cleaning
+            table_title_clean = table_data.get('table_title', 'Data Table').replace('**', '').replace('*', '').replace('__', '').replace('_', '')
             table_title = doc.add_heading(table_title_clean, level=3)
             table_title.alignment = WD_ALIGN_PARAGRAPH.LEFT
             
@@ -429,7 +439,8 @@ def export_to_docx(title, meta_desc, sections, keywords):
             # Header row - clean markdown
             header_cells = table.rows[0].cells
             for i, header in enumerate(headers):
-                clean_header = str(header).replace('**', '').replace('*', '')
+                # FIXED: More robust cleaning
+                clean_header = str(header).replace('**', '').replace('*', '').replace('__', '').replace('_', '')
                 header_cells[i].text = clean_header
                 # Bold header
                 for paragraph in header_cells[i].paragraphs:
@@ -440,13 +451,15 @@ def export_to_docx(title, meta_desc, sections, keywords):
             for row_idx, row_data in enumerate(rows):
                 row_cells = table.rows[row_idx + 1].cells
                 for col_idx, cell_value in enumerate(row_data):
-                    clean_value = str(cell_value).replace('**', '').replace('*', '')
+                    # FIXED: More robust cleaning
+                    clean_value = str(cell_value).replace('**', '').replace('*', '').replace('__', '').replace('_', '')
                     row_cells[col_idx].text = clean_value
         
         # Infographic note - clean markdown
         if section.get('needs_infographic'):
             doc.add_paragraph()
-            infographic_desc = section.get('infographic_description', 'Visual recommended').replace('**', '').replace('*', '')
+            # FIXED: More robust cleaning
+            infographic_desc = section.get('infographic_description', 'Visual recommended').replace('**', '').replace('*', '').replace('__', '').replace('_', '')
             info_note = doc.add_paragraph(f"💡 Infographic: {infographic_desc}")
             info_note.italic = True
         
@@ -476,8 +489,9 @@ def export_to_html(title, meta_desc, sections, keywords):
         section = section_data['section']
         content = section_data['content']
         
-        # Section heading (H2)
-        html += f"  <h2>{section['title']}</h2>\n"
+        # Section heading (H2) - FIXED: More robust cleaning
+        section_title_clean = section['title'].replace('**', '').replace('*', '').replace('#', '').replace('__', '').replace('_', '')
+        html += f"  <h2>{section_title_clean}</h2>\n"
         
         # Process content line by line and remove markdown formatting
         content_lines = content.split('\n')
@@ -497,7 +511,8 @@ def export_to_html(title, meta_desc, sections, keywords):
                 if in_list:
                     html += f"  </{list_type}>\n"
                     in_list = False
-                subheading_text = line.replace('### ', '').replace('**', '').replace('*', '')
+                # FIXED: More robust cleaning
+                subheading_text = line.replace('### ', '').replace('**', '').replace('*', '').replace('__', '').replace('_', '')
                 html += f"  <h3>{subheading_text}</h3>\n"
             # Bullet points - remove - or *
             elif line.startswith('- ') or line.startswith('* '):
@@ -509,24 +524,8 @@ def export_to_html(title, meta_desc, sections, keywords):
                     in_list = True
                     list_type = 'ul'
                 # Clean markdown formatting from text
+                # FIXED: More robust cleaning and removed buggy bold-re-addition
                 text = text.replace('**', '').replace('*', '').replace('__', '').replace('_', '')
-                # Convert back bold for HTML
-                if '**' in line or '__' in line:
-                    # Extract bold parts (between ** or __)
-                    parts = []
-                    temp = text
-                    while '**' in temp:
-                        before, rest = temp.split('**', 1)
-                        if '**' in rest:
-                            bold_text, after = rest.split('**', 1)
-                            parts.append(before)
-                            parts.append(f"<strong>{bold_text}</strong>")
-                            temp = after
-                        else:
-                            parts.append(before)
-                            parts.append(rest)
-                            break
-                    text = ''.join(parts) if parts else text
                 html += f"    <li>{text}</li>\n"
             # Numbered lists - remove numbers and periods
             elif line[0].isdigit() and '. ' in line:
@@ -538,6 +537,7 @@ def export_to_html(title, meta_desc, sections, keywords):
                     in_list = True
                     list_type = 'ol'
                 # Clean markdown formatting
+                # FIXED: More robust cleaning
                 text = text.replace('**', '').replace('*', '').replace('__', '').replace('_', '')
                 html += f"    <li>{text}</li>\n"
             # Regular paragraph
@@ -546,6 +546,7 @@ def export_to_html(title, meta_desc, sections, keywords):
                     html += f"  </{list_type}>\n"
                     in_list = False
                 # Clean all markdown formatting
+                # FIXED: More robust cleaning
                 text = line.replace('**', '').replace('*', '').replace('__', '').replace('_', '').replace('###', '').replace('##', '').replace('#', '')
                 html += f"  <p>{text}</p>\n"
         
@@ -558,14 +559,16 @@ def export_to_html(title, meta_desc, sections, keywords):
             html += "\n"
             
             # Table title (H3) - clean formatting
-            table_title = table_data.get('table_title', 'Data Table').replace('**', '').replace('*', '')
+            # FIXED: More robust cleaning
+            table_title = table_data.get('table_title', 'Data Table').replace('**', '').replace('*', '').replace('__', '').replace('_', '')
             html += f"  <h3>{table_title}</h3>\n"
             
             # Create table
             html += "  <table>\n"
             html += "    <thead>\n      <tr>\n"
             for header in table_data['headers']:
-                clean_header = str(header).replace('**', '').replace('*', '')
+                # FIXED: More robust cleaning
+                clean_header = str(header).replace('**', '').replace('*', '').replace('__', '').replace('_', '')
                 html += f"        <th>{clean_header}</th>\n"
             html += "      </tr>\n    </thead>\n"
             
@@ -573,7 +576,8 @@ def export_to_html(title, meta_desc, sections, keywords):
             for row in table_data['rows']:
                 html += "      <tr>\n"
                 for cell in row:
-                    clean_cell = str(cell).replace('**', '').replace('*', '')
+                    # FIXED: More robust cleaning
+                    clean_cell = str(cell).replace('**', '').replace('*', '').replace('__', '').replace('_', '')
                     html += f"        <td>{clean_cell}</td>\n"
                 html += "      </tr>\n"
             html += "    </tbody>\n"
@@ -581,7 +585,8 @@ def export_to_html(title, meta_desc, sections, keywords):
         
         # Infographic note
         if section.get('needs_infographic'):
-            infographic_desc = section.get('infographic_description', 'Visual recommended').replace('**', '').replace('*', '')
+            # FIXED: More robust cleaning
+            infographic_desc = section.get('infographic_description', 'Visual recommended').replace('**', '').replace('*', '').replace('__', '').replace('_', '')
             html += f"  <p class=\"infographic-note\"><em>💡 Infographic: {infographic_desc}</em></p>\n"
         
         html += "\n"
@@ -814,6 +819,9 @@ with tab1:
                     st.rerun()
         
         # Display Research Results Section (FIXED SECTION ADDED HERE)
+        # This section is correctly placed. The st.rerun() above will cause
+        # the app to reload, and this 'if' block will then execute
+        # and display the results populated in st.session_state.research_results.
         if st.session_state.research_results:
             st.divider()
             st.subheader("🔍 Research Results")
@@ -1315,7 +1323,8 @@ with tab4:
                         section = section_data.get('section', {})
                         
                         # Clean section title
-                        section_title = section.get('title', 'Section').replace('**', '').replace('*', '').replace('#', '')
+                        # FIXED: More robust cleaning
+                        section_title = section.get('title', 'Section').replace('**', '').replace('*', '').replace('#', '').replace('__', '').replace('_', '')
                         full_article += f"{section_title}\n\n"
                         
                         # Clean content - remove all markdown symbols
@@ -1327,24 +1336,28 @@ with tab4:
                         
                         if 'table' in section_data:
                             table = section_data.get('table', {})
-                            table_title = table.get('table_title', 'Table').replace('**', '').replace('*', '')
+                            # FIXED: More robust cleaning
+                            table_title = table.get('table_title', 'Table').replace('**', '').replace('*', '').replace('__', '').replace('_', '')
                             full_article += f"{table_title}\n\n"
                             
                             headers = table.get('headers', [])
                             rows = table.get('rows', [])
                             
                             if headers:
-                                headers_clean = [str(h).replace('**', '').replace('*', '') for h in headers]
+                                # FIXED: More robust cleaning
+                                headers_clean = [str(h).replace('**', '').replace('*', '').replace('__', '').replace('_', '') for h in headers]
                                 full_article += " | ".join(headers_clean) + "\n"
                                 full_article += " | ".join(["---"] * len(headers_clean)) + "\n"
                                 
                                 for row in rows:
-                                    clean_row = [str(cell).replace('**', '').replace('*', '') for cell in row]
+                                    # FIXED: More robust cleaning
+                                    clean_row = [str(cell).replace('**', '').replace('*', '').replace('__', '').replace('_', '') for cell in row]
                                     full_article += " | ".join(clean_row) + "\n"
                                 full_article += "\n"
                         
                         if section.get('needs_infographic'):
-                            infographic = section.get('infographic_description', 'Visual recommended').replace('**', '').replace('*', '')
+                            # FIXED: More robust cleaning
+                            infographic = section.get('infographic_description', 'Visual recommended').replace('**', '').replace('*', '').replace('__', '').replace('_', '')
                             full_article += f"💡 Infographic: {infographic}\n\n"
                         
                         full_article += "---\n\n"
