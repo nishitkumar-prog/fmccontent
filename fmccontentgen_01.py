@@ -847,13 +847,21 @@ with tab1:
             st.divider()
             st.subheader("📥 Export Options")
             
-            # Prepare export data
-            export_data = {
-                'topic': st.session_state.generation_details['topic'],
-                'timestamp': st.session_state.generation_details['timestamp'],
-                'model': st.session_state.generation_details['model'],
-                'queries': st.session_state.fanout_results
-            }
+            # Prepare export data - safe access to avoid KeyError
+            if st.session_state.generation_details:
+                export_data = {
+                    'topic': st.session_state.generation_details['topic'],
+                    'timestamp': st.session_state.generation_details['timestamp'],
+                    'model': st.session_state.generation_details['model'],
+                    'queries': st.session_state.fanout_results
+                }
+            else:
+                export_data = {
+                    'topic': 'Unknown Topic',
+                    'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    'model': 'Unknown',
+                    'queries': st.session_state.fanout_results
+                }
             
             col1, col2 = st.columns(2)
             
@@ -946,7 +954,7 @@ with tab2:
                     
                     st.session_state.fanout_results = all_queries
                     st.session_state.generation_details = {
-                        'topic': f"PDF Analysis: {analysis['filename']}",
+                        'topic': f"PDF Analysis: {analysis.get('filename', 'Unknown')}",
                         'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                         'model': gemini_model
                     }
@@ -1189,33 +1197,44 @@ with tab4:
                 st.divider()
                 st.subheader("📄 Generated Article")
                 
-                # Article preview
-                st.markdown(f"# {st.session_state.content_structure['article_title']}")
-                st.caption(f"*{st.session_state.content_structure.get('meta_description', '')}*")
+                # Article preview - safe access to structure
+                article_title = st.session_state.content_structure.get('article_title', 'Untitled Article')
+                meta_desc = st.session_state.content_structure.get('meta_description', '')
+                
+                st.markdown(f"# {article_title}")
+                if meta_desc:
+                    st.caption(f"*{meta_desc}*")
                 st.divider()
                 
                 total_words = 0
                 
                 for idx, section_key in enumerate(sorted(st.session_state.generated_content.keys())):
-                    section_data = st.session_state.generated_content[section_key]
-                    section = section_data['section']
-                    content = section_data['content']
+                    section_data = st.session_state.generated_content.get(section_key, {})
+                    if not section_data:
+                        continue
+                        
+                    section = section_data.get('section', {})
+                    content = section_data.get('content', '')
                     
-                    st.markdown(f"## {section['title']}")
+                    section_title = section.get('title', f'Section {idx + 1}')
+                    st.markdown(f"## {section_title}")
                     st.markdown(content)
                     
                     # Show table if generated
                     if 'table' in section_data:
-                        table = section_data['table']
-                        st.markdown(f"### {table.get('table_title', 'Comparison Table')}")
+                        table = section_data.get('table', {})
+                        table_title = table.get('table_title', 'Comparison Table')
+                        st.markdown(f"### {table_title}")
                         
                         # Create dataframe for display
-                        df = pd.DataFrame(table['rows'], columns=table['headers'])
-                        st.dataframe(df, use_container_width=True, hide_index=True)
+                        if 'headers' in table and 'rows' in table:
+                            df = pd.DataFrame(table['rows'], columns=table['headers'])
+                            st.dataframe(df, use_container_width=True, hide_index=True)
                     
                     # Show infographic suggestion
                     if section.get('needs_infographic'):
-                        st.info(f"💡 **Infographic Suggestion:** {section.get('infographic_description', 'Visual representation recommended')}")
+                        infographic_desc = section.get('infographic_description', 'Visual representation recommended')
+                        st.info(f"💡 **Infographic Suggestion:** {infographic_desc}")
                     
                     st.divider()
                     
@@ -1230,7 +1249,9 @@ with tab4:
                 # Prepare data for export
                 sections_list = []
                 for section_key in sorted(st.session_state.generated_content.keys()):
-                    sections_list.append(st.session_state.generated_content[section_key])
+                    section_data = st.session_state.generated_content.get(section_key)
+                    if section_data:
+                        sections_list.append(section_data)
                 
                 # Get keywords
                 article_keywords = st.session_state.content_structure.get('semantic_keywords', [])
@@ -1242,7 +1263,7 @@ with tab4:
                     # DOCX Export
                     if DOCX_AVAILABLE:
                         docx_buffer = export_to_docx(
-                            st.session_state.content_structure['article_title'],
+                            st.session_state.content_structure.get('article_title', 'Article'),
                             st.session_state.content_structure.get('meta_description', ''),
                             sections_list,
                             article_keywords
@@ -1262,7 +1283,7 @@ with tab4:
                 with col2:
                     # Clean HTML Export
                     html_content = export_to_html(
-                        st.session_state.content_structure['article_title'],
+                        st.session_state.content_structure.get('article_title', 'Article'),
                         st.session_state.content_structure.get('meta_description', ''),
                         sections_list,
                         article_keywords
@@ -1278,36 +1299,49 @@ with tab4:
                 
                 with col3:
                     # Markdown Export - clean version without markdown symbols
-                    full_article = f"{st.session_state.content_structure['article_title']}\n\n"
-                    full_article += f"{st.session_state.content_structure.get('meta_description', '')}\n\n"
+                    article_title = st.session_state.content_structure.get('article_title', 'Article')
+                    article_meta = st.session_state.content_structure.get('meta_description', '')
+                    
+                    full_article = f"{article_title}\n\n"
+                    if article_meta:
+                        full_article += f"{article_meta}\n\n"
                     full_article += "---\n\n"
                     
                     for section_key in sorted(st.session_state.generated_content.keys()):
-                        section_data = st.session_state.generated_content[section_key]
-                        section = section_data['section']
+                        section_data = st.session_state.generated_content.get(section_key, {})
+                        if not section_data:
+                            continue
+                            
+                        section = section_data.get('section', {})
                         
                         # Clean section title
-                        section_title = section['title'].replace('**', '').replace('*', '').replace('#', '')
+                        section_title = section.get('title', 'Section').replace('**', '').replace('*', '').replace('#', '')
                         full_article += f"{section_title}\n\n"
                         
                         # Clean content - remove all markdown symbols
-                        content_clean = section_data['content']
+                        content_clean = section_data.get('content', '')
                         content_clean = content_clean.replace('###', '').replace('##', '').replace('#', '')
                         content_clean = content_clean.replace('**', '').replace('__', '')
                         content_clean = content_clean.replace('*', '').replace('_', '')
                         full_article += f"{content_clean}\n\n"
                         
                         if 'table' in section_data:
-                            table = section_data['table']
+                            table = section_data.get('table', {})
                             table_title = table.get('table_title', 'Table').replace('**', '').replace('*', '')
                             full_article += f"{table_title}\n\n"
-                            headers = [str(h).replace('**', '').replace('*', '') for h in table['headers']]
-                            full_article += " | ".join(headers) + "\n"
-                            full_article += " | ".join(["---"] * len(headers)) + "\n"
-                            for row in table['rows']:
-                                clean_row = [str(cell).replace('**', '').replace('*', '') for cell in row]
-                                full_article += " | ".join(clean_row) + "\n"
-                            full_article += "\n"
+                            
+                            headers = table.get('headers', [])
+                            rows = table.get('rows', [])
+                            
+                            if headers:
+                                headers_clean = [str(h).replace('**', '').replace('*', '') for h in headers]
+                                full_article += " | ".join(headers_clean) + "\n"
+                                full_article += " | ".join(["---"] * len(headers_clean)) + "\n"
+                                
+                                for row in rows:
+                                    clean_row = [str(cell).replace('**', '').replace('*', '') for cell in row]
+                                    full_article += " | ".join(clean_row) + "\n"
+                                full_article += "\n"
                         
                         if section.get('needs_infographic'):
                             infographic = section.get('infographic_description', 'Visual recommended').replace('**', '').replace('*', '')
