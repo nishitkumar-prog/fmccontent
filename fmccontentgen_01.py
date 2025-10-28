@@ -57,8 +57,8 @@ st.sidebar.subheader("Gemini Model")
 gemini_model = st.sidebar.selectbox(
     "Select Model",
     [
-        "gemini-1.5-flash-latest",  # Use specific model names
-        "gemini-1.5-pro-latest",
+        "gemini-2.5-flash",  # Use specific model names
+        "gemini-2.5-pro",
         "gemini-pro"  # Fallback
     ],
     index=0
