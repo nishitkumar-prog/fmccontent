@@ -21,7 +21,7 @@ except ImportError:
 
 # App config
 st.set_page_config(page_title="Qforia Research Platform", layout="wide")
-st.title("fmc Content Guide")
+st.title("SYU Content Guide")
 
 # Grok API Configuration
 GROK_API_URL = "https://api.x.ai/v1/chat/completions"
@@ -45,8 +45,6 @@ if 'content_structure' not in st.session_state:
     st.session_state.content_structure = []
 if 'user_query' not in st.session_state:
     st.session_state.user_query = ''
-if 'user_intent' not in st.session_state:
-    st.session_state.user_intent = ''
 
 # Sidebar Configuration
 st.sidebar.header("🔧 Configuration")
@@ -91,7 +89,7 @@ def call_perplexity(query, system_prompt="Provide comprehensive, actionable insi
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": query}
         ],
-        "max_tokens": 800  # Increased from 500 for more comprehensive answers
+        "max_tokens": 500  # Reduced from 1000 to minimize cost
     }
     
     try:
@@ -135,1041 +133,1064 @@ def call_grok(messages, max_tokens=4000, temperature=0.7):
     except Exception as e:
         return None, f"Grok API error: {str(e)}"
 
-def generate_content_structure_from_queries(research_data, topic, selected_queries):
-    """Generate article structure directly from selected query fan-out queries"""
+def generate_content_structure(research_data, topic):
+    """Generate SEO-optimized article structure"""
     if not grok_key:
         return None, "Grok API key required"
     
-    # Get the actual queries from selected items
-    sections_list = []
-    for query_id in selected_queries:
-        if query_id in research_data:
-            query_text = research_data[query_id]['query']
-            sections_list.append({
-                "title": query_text,  # FIXED: Using exact query text as section heading
-                "query_id": query_id,
-                "description": f"Content based on: {query_text}",
-                "key_points": [],
-                "needs_table": True,  # Enable tables by default
-                "table_description": f"Data and comparisons for {query_text}",
-                "needs_infographic": False,
-                "infographic_description": "",
-                "estimated_words": 600
-            })
+    research_summary = ""
+    for query_id, data in list(research_data.items())[:10]:  # Limit to 10 to reduce tokens
+        research_summary += f"\n{data['query']}: {data['result'][:200]}..."
     
-    if not sections_list:
-        return None, "No queries selected"
-    
-    # Create structure
-    structure = {
-        "article_title": topic,
-        "meta_description": f"Comprehensive guide about {topic} with detailed analysis and insights.",
-        "primary_keyword": topic,
-        "semantic_keywords": [topic],
-        "sections": sections_list
-    }
-    
-    return structure, None
-
-def generate_section_content(section, research_context, topic, user_intent):
-    """Generate data-driven content with emphasis on tables, bullet points, and structured data"""
-    if not grok_key:
-        return None, "Grok API key required"
-    
-    # Get research data for this section
-    section_research = ""
-    if 'query_id' in section and section['query_id'] in research_context:
-        research_data = research_context[section['query_id']]
-        if 'result' in research_data:
-            result = research_data['result']
-            if isinstance(result, dict) and 'choices' in result:
-                section_research = result['choices'][0]['message']['content']
-            elif isinstance(result, str):
-                section_research = result
-    
-    # ENHANCED: Stricter check for insufficient data
-    if not section_research or len(section_research.strip()) < 100:
-        return None, "INSUFFICIENT_DATA: Not enough research content available"
-    
-    # Check for actual useful content (not just error messages)
-    if "error" in section_research.lower() or "not available" in section_research.lower():
-        return None, "INSUFFICIENT_DATA: Research data contains errors or unavailable information"
-    
-    # ENHANCED: Aggressive data-focused prompt with user intent integration
-    prompt = f"""Create EXTREMELY data-dense, structured content optimized for maximum information value.
-
-ARTICLE TOPIC: {topic}
-SECTION TITLE: {section['title']}
-
-USER INTENT/PURPOSE (CRITICAL - Optimize output for this):
-{user_intent}
+    prompt = f"""Create SEO-optimized article structure for: "{topic}"
 
 RESEARCH DATA:
-{section_research}
+{research_summary}
 
-ABSOLUTE REQUIREMENTS - NO EXCEPTIONS:
-1. ⚡ DATA FIRST: 80% structured data (bullets, lists, tables), 20% prose maximum
-2. 📊 EXTRACT EVERY NUMBER: All statistics, prices, percentages, dates, metrics, measurements
-3. 🎯 BULLET POINTS ONLY: Use bullets and numbered lists - NO paragraph blocks
-4. ❌ INSUFFICIENT DATA RESPONSE: If research lacks concrete data/numbers, return EXACTLY: "INSUFFICIENT_DATA"
-5. 📈 COMPARATIVE DATA: Show comparisons, before/after, trends, rankings wherever possible
-6. 🔢 SPECIFIC VALUES: Use exact numbers with units ($, %, GB, days, etc.) - NO vague terms
-7. 📋 SCANNABLE FORMAT: H3 subheadings (###) for each distinct aspect/category
-8. 🚫 NO FLUFF: No introductions, conclusions, summaries, or transitional phrases
-9. ✅ VERIFIED FACTS: Every data point must come directly from research - NO assumptions
-10. 💡 ACTIONABLE: Include practical implications/applications of each data point
+REQUIREMENTS:
+1. H1 Title: Include main keyword, make it compelling (50-60 chars)
+2. Meta Description: 150-160 chars with main keyword and value proposition
+3. 8-10 H2 Sections covering user search intent
+4. Each section answers a specific user question
+5. Include sections with tables for comparisons/data
+6. Mark sections where visuals enhance understanding
+7. Logical flow: Problem → Solution → Implementation → Results
 
-CONTENT HIERARCHY (strictly follow):
-### Data Category 1
-- Specific data point: [number/stat/fact]
-- Related metric: [number/stat/fact]
-- Key comparison: [number vs number]
-- Practical insight: [actionable takeaway]
+USER INTENT:
+- What are they trying to learn?
+- What problem are they solving?
+- What action will they take?
 
-### Data Category 2
-1. Numbered step/item: [specific data]
-2. Next step/item: [specific data]
-3. Next step/item: [specific data]
-
-### Data Category 3
-- Feature/aspect: [specifications + numbers]
-- Cost/pricing: [exact amounts + comparisons]
-- Performance: [metrics + benchmarks]
-
-FORMAT RULES:
-- Maximum 2-sentence explanation per category (only if absolutely necessary for context)
-- Every bullet must contain at least one specific number, date, or quantifiable fact
-- Use bold (**text**) only for key metrics and numbers
-- Organize by importance/relevance to user intent
-- Include data source indicators when available (e.g., "2024 study:", "Q4 2023:")
-
-FAIL CONDITIONS (return "INSUFFICIENT_DATA" if):
-- Research lacks 5+ specific data points
-- No concrete numbers, statistics, or metrics available
-- Information is too general or vague
-- Cannot create meaningful comparisons or structured data
-
-Write 400-600 words of PURE DATA CONTENT NOW (markdown format):
-"""
-
-    messages = [{"role": "user", "content": prompt}]
-    # FIXED: Increased max_tokens from 1500 to 4096
-    response, error = call_grok(messages, max_tokens=4096, temperature=0.5)
-    
-    if error:
-        return None, error
-    
-    # ENHANCED: Robust check for insufficient data marker
-    if response and ("INSUFFICIENT_DATA" in response or len(response.strip()) < 150):
-        return None, "INSUFFICIENT_DATA: Unable to generate meaningful content from available research"
-    
-    return response, None
-
-def generate_table_content(section, research_context, user_intent):
-    """Generate comprehensive comparison tables with maximum data extraction"""
-    if not grok_key or not section.get('needs_table'):
-        return None, None
-    
-    # Get research data for this section
-    section_research = ""
-    if 'query_id' in section and section['query_id'] in research_context:
-        research_data = research_context[section['query_id']]
-        if 'result' in research_data:
-            result = research_data['result']
-            if isinstance(result, dict) and 'choices' in result:
-                section_research = result['choices'][0]['message']['content']
-            elif isinstance(result, str):
-                section_research = result
-    
-    # ENHANCED: Stricter check for table-worthy data
-    if not section_research or len(section_research.strip()) < 100:
-        return None, "INSUFFICIENT_DATA: Not enough data for table generation"
-    
-    # Check for actual structured data potential
-    if "error" in section_research.lower():
-        return None, "INSUFFICIENT_DATA: Research contains errors"
-    
-    # ENHANCED: Aggressive table-focused prompt with user intent
-    prompt = f"""Create an EXHAUSTIVE comparison table extracting MAXIMUM data from research.
-
-SECTION: {section['title']}
-
-USER INTENT (Optimize table structure for this):
-{user_intent}
-
-RESEARCH DATA:
-{section_research}
-
-CRITICAL TABLE REQUIREMENTS:
-1. 🎯 MAXIMUM DATA EXTRACTION: Include EVERY extractable data point, metric, feature, price, specification
-2. 📊 RICH STRUCTURE: Create 5-10 columns (more columns = better coverage)
-3. 📈 COMPREHENSIVE ROWS: Include 10-20 rows with ACTUAL specific data (more rows = better)
-4. ✅ NO PLACEHOLDERS: Use only concrete values - NEVER use "Varies", "N/A", "TBD", "Contact", "Coming soon"
-5. ❌ INSUFFICIENT DATA CHECK: If you cannot create a table with at least 5 columns and 8 rows of REAL data, return "INSUFFICIENT_DATA"
-6. 🔢 UNITS REQUIRED: Include units with all numbers ($, %, GB, MB, days, hours, etc.)
-7. 📋 LOGICAL SORTING: Sort rows meaningfully (price low-to-high, popularity, alphabetically, chronologically)
-8. 💰 PRICING PRIORITY: Always include pricing/cost data if available
-9. 📊 COMPARATIVE METRICS: Include quantitative comparisons wherever possible
-10. 🎨 ACTIONABLE STRUCTURE: Table should enable direct comparison and decision-making
-
-OPTIMAL TABLE TYPES BY USER INTENT:
-- Comparison: Product/Service A vs B vs C vs D (features, specs, prices)
-- Pricing: Tiers/Plans with exact prices, limits, features included/excluded
-- Statistical: Time periods with metrics, growth rates, market share
-- Specifications: Models/versions with technical specs, performance, compatibility
-- Process: Steps with time required, costs, resources, tools needed
-- Ranking: Top items ranked with scores, ratings, key differentiators
-
-EXAMPLE HIGH-QUALITY TABLE STRUCTURE:
+JSON FORMAT:
 {{
-    "table_title": "Enterprise Cloud Storage Solutions Comparison 2024",
-    "headers": ["Provider", "Free Tier", "Business Plan", "Enterprise Plan", "Storage Limit", "File Size Limit", "Security Features", "Integration Options", "Support Level"],
-    "rows": [
-        ["Google Workspace", "15 GB", "$12/user/mo", "$18/user/mo", "Unlimited", "5 TB", "2FA, DLP, Vault", "1000+ apps", "24/7 Priority"],
-        ["Microsoft 365", "5 GB", "$12.50/user/mo", "$22/user/mo", "Unlimited", "250 GB", "MFA, ATP, eDiscovery", "Office Suite", "24/7 Priority"],
-        ["Dropbox Business", "2 GB", "$15/user/mo", "$24/user/mo", "Unlimited", "50 GB", "SSO, Device Approval", "Zapier, Slack", "24/5 Standard"],
-        ["Box Enterprise", "10 GB", "$17/user/mo", "Custom", "Unlimited", "150 GB", "Shield, Governance", "1500+ apps", "24/7 Dedicated"]
+    "article_title": "SEO-friendly H1 title",
+    "meta_description": "150-160 char description",
+    "primary_keyword": "main keyword",
+    "semantic_keywords": ["keyword1", "keyword2", "keyword3"],
+    "sections": [
+        {{
+            "title": "H2 Section Title with Keyword",
+            "description": "What this covers",
+            "key_points": ["Point 1", "Point 2", "Point 3"],
+            "needs_table": true/false,
+            "table_description": "What to compare",
+            "needs_infographic": true/false,
+            "infographic_description": "What to visualize",
+            "estimated_words": 400
+        }}
     ]
 }}
 
-STRICT JSON FORMAT (return ONLY this):
-{{
-    "table_title": "Highly Specific, Descriptive Table Title with Year/Context",
-    "headers": ["Column 1", "Column 2", "Column 3", "Column 4", "Column 5", "Column 6", "Column 7"],
-    "rows": [
-        ["Specific value 1", "Specific value 2", "Specific value 3", "Specific value 4", "Specific value 5", "Specific value 6", "Specific value 7"],
-        ["Actual data row 2 with real values"],
-        ["Actual data row 3 with real values"],
-        (minimum 8 rows, target 10-15 rows with complete data)
-    ]
-}}
-
-FAIL CONDITIONS (return "INSUFFICIENT_DATA" if):
-- Cannot create at least 5 columns with distinct data types
-- Cannot populate at least 8 rows with specific, non-placeholder values
-- Data is too sparse or inconsistent for meaningful comparison
-- Missing critical comparative dimensions
-
-Generate MAXIMUM-DATA table NOW (return ONLY valid JSON, extract ALL available information):
+Create structure NOW:
 """
 
     messages = [{"role": "user", "content": prompt}]
-    # FIXED: Increased max_tokens from 3000 to 8192 for larger tables
-    response, error = call_grok(messages, max_tokens=8192, temperature=0.3)
+    response, error = call_grok(messages, max_tokens=3000, temperature=0.6)
     
     if error:
         return None, error
-    
-    # ENHANCED: Check for insufficient data marker
-    if response and "INSUFFICIENT_DATA" in response:
-        return None, "INSUFFICIENT_DATA: Not enough data for comprehensive table"
     
     try:
-        # Extract JSON
+        # Extract JSON from response
         json_match = response
         if "```json" in response:
-            json_match = response.split("```json")[1].split("```")[0].strip()
+            json_match = response.split("```json")[1].split("```")[0]
         elif "```" in response:
-            json_match = response.split("```")[1].split("```")[0].strip()
+            json_match = response.split("```")[1].split("```")[0]
         
-        table_data = json.loads(json_match)
-        
-        # ENHANCED: Validate table has substantial data
-        if not table_data.get('rows') or len(table_data['rows']) < 5:
-            return None, "INSUFFICIENT_DATA: Table has too few data rows"
-        
-        if not table_data.get('headers') or len(table_data['headers']) < 4:
-            return None, "INSUFFICIENT_DATA: Table has too few columns"
-        
-        # Check for placeholder values
-        rows = table_data.get('rows', [])
-        for row in rows[:3]:  # Check first 3 rows
-            for cell in row:
-                cell_str = str(cell).lower()
-                if any(placeholder in cell_str for placeholder in ['varies', 'n/a', 'tbd', 'contact', 'coming soon', 'see website']):
-                    return None, "INSUFFICIENT_DATA: Table contains placeholder values"
-        
-        return table_data, None
+        return json.loads(json_match.strip()), None
     except Exception as e:
-        return None, f"Table generation error: {str(e)}"
+        return None, f"Failed to parse structure: {str(e)}"
 
-def clean_markdown_symbols(text):
-    """Comprehensive function to remove all markdown symbols from text"""
-    if not text:
-        return ""
+def generate_section_content(section, research_context, tone="professional"):
+    """Generate detailed content for a specific section with SEO optimization"""
+    if not grok_key:
+        return None, "Grok API key required"
     
-    # Convert to string if not already
-    text = str(text)
-    
-    # Remove all markdown symbols in specific order to avoid partial matches
-    text = text.replace('###', '')
-    text = text.replace('##', '')
-    text = text.replace('#', '')
-    text = text.replace('**', '')
-    text = text.replace('__', '')
-    text = text.replace('*', '')
-    text = text.replace('_', '')
-    
-    return text.strip()
+    prompt = f"""Write SEO-optimized content for this section.
 
-def export_to_docx(title, meta_desc, sections, keywords):
-    """Export article to properly formatted DOCX (no markdown symbols)"""
+SECTION: {section['title']}
+DESCRIPTION: {section['description']}
+KEY POINTS: {', '.join(section['key_points'])}
+TARGET LENGTH: {section.get('estimated_words', 400)} words
+TONE: {tone}
+
+RESEARCH DATA:
+{research_context[:2000]}
+
+SEO REQUIREMENTS:
+1. Use primary keyword "{section['title']}" in first paragraph
+2. Include semantic keywords naturally throughout
+3. Use header hierarchy properly (H2 for section, H3 for subsections)
+4. Write for user intent - answer what users actually want to know
+5. Include specific data, statistics, examples from research
+6. Short paragraphs (2-3 sentences max)
+7. Use transition words between paragraphs
+
+STRUCTURE:
+- Opening paragraph with main keyword
+- 2-3 body paragraphs with semantic keywords
+- Each paragraph should answer a specific user question
+- Use bullet points or numbered lists where helpful
+- End with actionable insight or transition
+
+{f"CREATE TABLE: {section['table_description']}" if section.get('needs_table') else ''}
+
+Write the complete section content now:"""
+
+    messages = [{"role": "user", "content": prompt}]
+    return call_grok(messages, max_tokens=1500, temperature=0.7)
+
+def generate_table_content(section):
+    """Generate table data for a section"""
+    if not grok_key or not section.get('needs_table'):
+        return None, "No table needed or Grok API not configured"
+    
+    prompt = f"""Create a useful comparison table for: {section['title']}
+
+Table should show: {section.get('table_description', 'relevant comparisons')}
+
+Return ONLY valid JSON in this format:
+{{
+    "table_title": "Title for the table",
+    "headers": ["Column 1", "Column 2", "Column 3"],
+    "rows": [
+        ["Data 1", "Data 2", "Data 3"],
+        ["Data 1", "Data 2", "Data 3"]
+    ]
+}}
+
+Create 3-5 rows with accurate, relevant data."""
+
+    messages = [{"role": "user", "content": prompt}]
+    response, error = call_grok(messages, max_tokens=800, temperature=0.5)
+    
+    if error:
+        return None, error
+    
+    try:
+        if "```json" in response:
+            response = response.split("```json")[1].split("```")[0]
+        return json.loads(response.strip()), None
+    except Exception as e:
+        return None, f"Failed to parse table: {str(e)}"
+
+def export_to_docx(article_title, meta_description, sections_content, keywords):
+    """Export article to formatted DOCX file"""
     if not DOCX_AVAILABLE:
         return None
     
     doc = Document()
     
-    # Set document properties
-    core_properties = doc.core_properties
-    core_properties.title = clean_markdown_symbols(title)
-    core_properties.keywords = ", ".join([clean_markdown_symbols(k) for k in keywords]) if keywords else ""
+    # Set normal style
+    style = doc.styles['Normal']
+    style.font.name = 'Arial'
+    style.font.size = Pt(11)
     
-    # Title (H1) - Only one H1 in the document - CLEANED
-    h1 = doc.add_heading(clean_markdown_symbols(title), level=1)
-    h1.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    # Add H1 Title (ONLY ONE)
+    title = doc.add_heading(article_title, level=1)
+    title.alignment = WD_ALIGN_PARAGRAPH.LEFT
     
-    # Meta description - CLEANED
-    if meta_desc:
-        meta = doc.add_paragraph(clean_markdown_symbols(meta_desc))
-        meta.italic = True
-        meta_format = meta.paragraph_format
-        meta_format.space_after = Pt(12)
+    # Add meta description
+    meta = doc.add_paragraph(meta_description)
+    meta.italic = True
+    doc.add_paragraph()
     
-    doc.add_paragraph()  # Spacing
+    # Add keywords section
+    doc.add_heading('Target Keywords', level=2)
+    kw_text = ', '.join([k.get('keyword', str(k)) if isinstance(k, dict) else str(k) for k in keywords[:10]])
+    doc.add_paragraph(kw_text)
+    doc.add_paragraph()
     
-    # Add sections
-    for section_data in sections:
+    # Add all sections (H2 level)
+    for section_data in sections_content:
         section = section_data['section']
         content = section_data['content']
         
-        # Section heading (H2) - FULLY CLEANED
-        section_title_clean = clean_markdown_symbols(section['title'])
-        h2 = doc.add_heading(section_title_clean, level=2)
-        h2.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        # Add H2 section title
+        doc.add_heading(section['title'], level=2)
         
-        # Process content line by line
-        content_lines = content.split('\n')
+        # Add content paragraphs
+        paragraphs = content.split('\n\n')
+        for para in paragraphs:
+            if para.strip():
+                # Check if it's a subheading (starts with ###)
+                if para.strip().startswith('###'):
+                    doc.add_heading(para.replace('###', '').strip(), level=3)
+                else:
+                    doc.add_paragraph(para.strip())
         
-        for line in content_lines:
-            line = line.strip()
-            if not line:
-                continue
-            
-            # H3 subheadings - CLEANED
-            if line.startswith('###'):
-                subheading_text = clean_markdown_symbols(line.replace('###', ''))
-                if subheading_text:
-                    h3 = doc.add_heading(subheading_text, level=3)
-                    h3.alignment = WD_ALIGN_PARAGRAPH.LEFT
-            # Bullet points - CLEANED
-            elif line.startswith('- ') or line.startswith('* '):
-                text = clean_markdown_symbols(line[2:].strip())
-                if text:
-                    doc.add_paragraph(text, style='List Bullet')
-            # Numbered lists - CLEANED
-            elif line[0].isdigit() and '. ' in line:
-                text = line.split('. ', 1)[1] if '. ' in line else line
-                text = clean_markdown_symbols(text)
-                if text:
-                    doc.add_paragraph(text, style='List Number')
-            # Regular paragraph - FULLY CLEANED
-            else:
-                text = clean_markdown_symbols(line)
-                if text:
-                    doc.add_paragraph(text)
-        
-        # Add table if available
+        # Add table if exists
         if 'table' in section_data:
-            table_data = section_data['table']
-            doc.add_paragraph()  # Spacing
+            table_info = section_data['table']
+            doc.add_paragraph()
+            doc.add_heading(table_info.get('table_title', 'Comparison Table'), level=3)
             
-            # Table title (H3) - CLEANED
-            table_title_clean = clean_markdown_symbols(table_data.get('table_title', 'Data Table'))
-            table_title = doc.add_heading(table_title_clean, level=3)
-            table_title.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            headers = table_info.get('headers', [])
+            rows = table_info.get('rows', [])
             
-            # Create table
-            headers = table_data['headers']
-            rows = table_data['rows']
-            
-            table = doc.add_table(rows=1 + len(rows), cols=len(headers))
-            table.style = 'Light Grid Accent 1'
-            
-            # Header row - FULLY CLEANED
-            header_cells = table.rows[0].cells
-            for i, header in enumerate(headers):
-                clean_header = clean_markdown_symbols(header)
-                header_cells[i].text = clean_header
-                # Bold header
-                for paragraph in header_cells[i].paragraphs:
-                    for run in paragraph.runs:
-                        run.font.bold = True
-            
-            # Data rows - FULLY CLEANED
-            for row_idx, row_data in enumerate(rows):
-                row_cells = table.rows[row_idx + 1].cells
-                for col_idx, cell_value in enumerate(row_data):
-                    clean_value = clean_markdown_symbols(cell_value)
-                    row_cells[col_idx].text = clean_value
+            if headers and rows:
+                table = doc.add_table(rows=len(rows)+1, cols=len(headers))
+                table.style = 'Light Grid Accent 1'
+                
+                # Header row
+                for idx, header in enumerate(headers):
+                    cell = table.rows[0].cells[idx]
+                    cell.text = str(header)
+                    cell.paragraphs[0].runs[0].font.bold = True
+                
+                # Data rows
+                for row_idx, row in enumerate(rows):
+                    for col_idx, cell_value in enumerate(row):
+                        table.rows[row_idx+1].cells[col_idx].text = str(cell_value)
         
-        # Infographic note - CLEANED
+        # Add infographic note
         if section.get('needs_infographic'):
             doc.add_paragraph()
-            infographic_desc = clean_markdown_symbols(section.get('infographic_description', 'Visual recommended'))
-            info_note = doc.add_paragraph(f"💡 Infographic: {infographic_desc}")
-            info_note.italic = True
+            note = doc.add_paragraph()
+            note.add_run('💡 Infographic Suggestion: ').bold = True
+            note.add_run(section.get('infographic_description', 'Visual content recommended'))
         
-        doc.add_paragraph()  # Section spacing
+        doc.add_paragraph()
     
-    # Save to buffer
+    # Save to BytesIO
     buffer = io.BytesIO()
     doc.save(buffer)
     buffer.seek(0)
     return buffer
 
-def export_to_html(title, meta_desc, sections, keywords):
-    """Export article to clean HTML (no html/head tags, one H1, no markdown symbols)"""
-    html = f"<article>\n"
+def export_to_html(article_title, meta_description, sections_content, keywords):
+    """Export article to clean HTML (no <html>, <head>, <meta> tags)"""
     
-    # Title (H1) - Only one H1 - CLEANED
-    html += f"  <h1>{clean_markdown_symbols(title)}</h1>\n"
+    html = []
     
-    # Meta description - CLEANED
-    if meta_desc:
-        html += f"  <p class=\"meta-description\"><em>{clean_markdown_symbols(meta_desc)}</em></p>\n"
+    # H1 Title (ONLY ONE)
+    html.append(f'<h1>{article_title}</h1>')
+    html.append(f'<p class="meta-description"><em>{meta_description}</em></p>')
+    html.append('')
     
-    html += "\n"
+    # Keywords
+    html.append('<h2>Target Keywords</h2>')
+    kw_list = ', '.join([k.get('keyword', str(k)) if isinstance(k, dict) else str(k) for k in keywords[:10]])
+    html.append(f'<p class="keywords">{kw_list}</p>')
+    html.append('')
     
-    # Add sections
-    for section_data in sections:
+    # All sections (H2 level)
+    for section_data in sections_content:
         section = section_data['section']
         content = section_data['content']
         
-        # Section heading (H2) - CLEANED
-        html += f"  <h2>{clean_markdown_symbols(section['title'])}</h2>\n"
+        # H2 section title
+        html.append(f'<h2>{section["title"]}</h2>')
         
-        # Process content line by line and remove markdown formatting
-        content_lines = content.split('\n')
-        in_list = False
-        list_type = None
+        # Content paragraphs
+        paragraphs = content.split('\n\n')
+        for para in paragraphs:
+            if para.strip():
+                # Check for H3 subheadings
+                if para.strip().startswith('###'):
+                    h3_text = para.replace('###', '').strip()
+                    html.append(f'<h3>{h3_text}</h3>')
+                # Check for bullet points
+                elif para.strip().startswith('- ') or para.strip().startswith('• '):
+                    items = para.strip().split('\n')
+                    html.append('<ul>')
+                    for item in items:
+                        clean_item = item.strip().lstrip('- ').lstrip('• ')
+                        if clean_item:
+                            html.append(f'  <li>{clean_item}</li>')
+                    html.append('</ul>')
+                # Regular paragraph
+                else:
+                    html.append(f'<p>{para.strip()}</p>')
         
-        for line in content_lines:
-            line = line.strip()
-            if not line:
-                if in_list:
-                    html += f"  </{list_type}>\n"
-                    in_list = False
-                continue
-            
-            # H3 subheadings - FULLY CLEANED
-            if line.startswith('###'):
-                if in_list:
-                    html += f"  </{list_type}>\n"
-                    in_list = False
-                subheading_text = clean_markdown_symbols(line.replace('###', ''))
-                if subheading_text:
-                    html += f"  <h3>{subheading_text}</h3>\n"
-            # Bullet points - FULLY CLEANED
-            elif line.startswith('- ') or line.startswith('* '):
-                text = clean_markdown_symbols(line[2:].strip())
-                if not in_list or list_type != 'ul':
-                    if in_list:
-                        html += f"  </{list_type}>\n"
-                    html += "  <ul>\n"
-                    in_list = True
-                    list_type = 'ul'
-                if text:
-                    html += f"    <li>{text}</li>\n"
-            # Numbered lists - FULLY CLEANED
-            elif line[0].isdigit() and '. ' in line:
-                text = line.split('. ', 1)[1] if '. ' in line else line
-                text = clean_markdown_symbols(text)
-                if not in_list or list_type != 'ol':
-                    if in_list:
-                        html += f"  </{list_type}>\n"
-                    html += "  <ol>\n"
-                    in_list = True
-                    list_type = 'ol'
-                if text:
-                    html += f"    <li>{text}</li>\n"
-            # Regular paragraph - FULLY CLEANED
-            else:
-                if in_list:
-                    html += f"  </{list_type}>\n"
-                    in_list = False
-                text = clean_markdown_symbols(line)
-                if text:
-                    html += f"  <p>{text}</p>\n"
-        
-        if in_list:
-            html += f"  </{list_type}>\n"
-        
-        # Add table if available
+        # Add table if exists
         if 'table' in section_data:
-            table_data = section_data['table']
-            html += "\n"
+            table_info = section_data['table']
+            html.append(f'<h3>{table_info.get("table_title", "Comparison Table")}</h3>')
+            html.append('<table>')
             
-            # Table title (H3) - FULLY CLEANED
-            table_title = clean_markdown_symbols(table_data.get('table_title', 'Data Table'))
-            html += f"  <h3>{table_title}</h3>\n"
+            headers = table_info.get('headers', [])
+            rows = table_info.get('rows', [])
             
-            # Create table
-            html += "  <table>\n"
-            html += "    <thead>\n      <tr>\n"
-            for header in table_data['headers']:
-                clean_header = clean_markdown_symbols(header)
-                html += f"        <th>{clean_header}</th>\n"
-            html += "      </tr>\n    </thead>\n"
+            if headers:
+                html.append('  <thead>')
+                html.append('    <tr>')
+                for header in headers:
+                    html.append(f'      <th>{header}</th>')
+                html.append('    </tr>')
+                html.append('  </thead>')
             
-            html += "    <tbody>\n"
-            for row in table_data['rows']:
-                html += "      <tr>\n"
-                for cell in row:
-                    clean_cell = clean_markdown_symbols(cell)
-                    html += f"        <td>{clean_cell}</td>\n"
-                html += "      </tr>\n"
-            html += "    </tbody>\n"
-            html += "  </table>\n"
+            if rows:
+                html.append('  <tbody>')
+                for row in rows:
+                    html.append('    <tr>')
+                    for cell in row:
+                        html.append(f'      <td>{cell}</td>')
+                    html.append('    </tr>')
+                html.append('  </tbody>')
+            
+            html.append('</table>')
         
-        # Infographic note - CLEANED
+        # Infographic note
         if section.get('needs_infographic'):
-            infographic_desc = clean_markdown_symbols(section.get('infographic_description', 'Visual recommended'))
-            html += f"  <p class=\"infographic-note\"><em>💡 Infographic: {infographic_desc}</em></p>\n"
+            html.append(f'<div class="infographic-note">')
+            html.append(f'  <strong>💡 Infographic Suggestion:</strong> {section.get("infographic_description", "Visual content recommended")}')
+            html.append('</div>')
         
-        html += "\n"
+        html.append('')
     
-    html += "</article>"
-    return html
+    return '\n'.join(html)
 
-def extract_text_from_pdf(pdf_file):
-    """Extract text from PDF"""
+def extract_pdf_text(uploaded_file):
+    """Extract text content from uploaded PDF file"""
     try:
-        pdf_reader = PyPDF2.PdfReader(pdf_file)
+        pdf_reader = PyPDF2.PdfReader(uploaded_file)
         text = ""
-        for page in pdf_reader.pages:
+        
+        for page_num in range(len(pdf_reader.pages)):
+            page = pdf_reader.pages[page_num]
             text += page.extract_text() + "\n"
-        return text
+        
+        if len(text.strip()) < 100:
+            return None, "PDF content too short or unreadable"
+        
+        # Limit text length for analysis
+        return text[:10000], None
     except Exception as e:
-        return f"Error reading PDF: {e}"
+        return None, f"PDF extraction error: {e}"
 
-def generate_query_fanout(topic):
-    """Generate diverse research queries"""
+def analyze_pdf_content(content, filename):
+    """Analyze PDF content and extract keywords and key information"""
     if not model:
-        return None, "Gemini API key required"
+        return None, "Gemini not configured"
     
-    prompt = f"""Generate 15-20 diverse, specific research queries for comprehensive coverage of: "{topic}"
-
-REQUIREMENTS:
-1. Mix of query types:
-   - Definitional ("What is...", "How does...")
-   - Comparative ("X vs Y", "Compare...")
-   - Practical ("How to...", "Steps to...")
-   - Statistical ("Statistics on...", "Data about...")
-   - Historical ("History of...", "Evolution of...")
-   - Future-looking ("Trends in...", "Future of...")
-   - Problem-solving ("Challenges in...", "Solutions for...")
-
-2. Vary specificity (broad to narrow)
-3. Target different user intents
-4. Include industry-specific queries
-5. Add location/region-specific queries if relevant
-
-Return ONLY a JSON array of query strings:
-["query1", "query2", "query3", ...]
-
-Generate queries NOW:
-"""
-
     try:
+        prompt = f"""
+        Analyze this PDF content and extract key information with focus on specific keywords and topics:
+        
+        Filename: {filename}
+        Content: {content}
+
+        Provide a comprehensive analysis in JSON format with concise, specific keywords and topics:
+        {{
+            "keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"],
+            "main_topics": ["topic1", "topic2", "topic3"],
+            "key_concepts": ["concept1", "concept2", "concept3"],
+            "content_type": "research|report|article|manual|guide|presentation",
+            "domain": "technology|business|science|education|healthcare|finance|other",
+            "credibility_indicators": ["indicator1", "indicator2"],
+            "missing_context": [
+                {{"topic": "specific topic", "missing_info": "what's missing", "research_query": "targeted query"}}
+            ],
+            "fact_check_items": [
+                {{"claim": "specific factual claim", "verification_query": "query to verify"}}
+            ],
+            "enhancement_opportunities": [
+                {{"area": "specific area", "suggested_research": "focused research query"}}
+            ],
+            "summary": "Brief 2-3 sentence summary of the document"
+        }}
+        
+        Focus on:
+        - Extract specific keywords (1-3 words each), not long phrases
+        - Identify concrete topics, not abstract concepts
+        - Keep claims and opportunities specific and actionable
+        """
+        
         response = model.generate_content(prompt)
-        result = response.text.strip()
+        json_text = response.text.strip()
         
-        # Extract JSON
-        if "```json" in result:
-            result = result.split("```json")[1].split("```")[0].strip()
-        elif "```" in result:
-            result = result.split("```")[1].split("```")[0].strip()
+        # Clean JSON
+        if json_text.startswith("```json"):
+            json_text = json_text[7:]
+        if json_text.endswith("```"):
+            json_text = json_text[:-3]
+        json_text = json_text.strip()
         
-        queries = json.loads(result)
-        return queries, None
+        return json.loads(json_text), None
     except Exception as e:
-        return None, f"Query generation error: {str(e)}"
+        return None, f"Analysis error: {e}"
 
-def analyze_pdf_content(pdf_text):
-    """Analyze PDF and extract key topics"""
-    if not model:
-        return None, "Gemini API key required"
-    
-    prompt = f"""Analyze this PDF content and extract 5-10 key topics/themes for research:
+def QUERY_FANOUT_PROMPT(q, mode):
+    min_queries_simple = 12
+    min_queries_complex = 25
 
-PDF CONTENT:
-{pdf_text[:4000]}  # Limit context
+    if mode == "AI Overview (simple)":
+        num_queries_instruction = (
+            f"Analyze the user's query: \"{q}\". For '{mode}' mode, "
+            f"generate **at least {min_queries_simple} diverse queries** that cover: "
+            f"basic information, comparisons, alternatives, practical considerations, and user scenarios. "
+            f"Focus on queries that would provide comprehensive coverage for someone researching this topic."
+        )
+    else:  # AI Mode (complex)
+        num_queries_instruction = (
+            f"Analyze the user's query: \"{q}\". For '{mode}' mode, "
+            f"generate **at least {min_queries_complex} comprehensive queries** that include: "
+            f"deep analysis, market trends, technical specifications, expert opinions, case studies, "
+            f"future predictions, regulatory considerations, and advanced comparisons. "
+            f"Create queries suitable for exhaustive research and strategic decision-making."
+        )
 
-Return ONLY a JSON array of topic strings:
-["topic1", "topic2", "topic3", ...]
-
-Topics should be:
-- Specific and focused
-- Researchable
-- Actionable for content creation
-
-Extract topics NOW:
-"""
-
-    try:
-        response = model.generate_content(prompt)
-        result = response.text.strip()
-        
-        # Extract JSON
-        if "```json" in result:
-            result = result.split("```json")[1].split("```")[0].strip()
-        elif "```" in result:
-            result = result.split("```")[1].split("```")[0].strip()
-        
-        topics = json.loads(result)
-        return topics, None
-    except Exception as e:
-        return None, f"PDF analysis error: {str(e)}"
-
-# Main App Layout
-tab1, tab2, tab3, tab4 = st.tabs(["🔍 Query Fan-Out", "📄 PDF Analysis", "✅ Fact Checker", "📊 Research Dashboard"])
-
-# TAB 1: Query Fan-Out
-with tab1:
-    st.header("Query Fan-Out Generator")
-    
-    query_input = st.text_area(
-        "Enter your research topic or query:",
-        height=100,
-        placeholder="E.g., 'AI in healthcare', 'Sustainable energy solutions', 'Remote work trends 2024'"
+    return (
+        f"You are an expert research strategist creating a comprehensive query fan-out for: \"{q}\"\n"
+        f"Mode: {mode}\n\n"
+        f"{num_queries_instruction}\n\n"
+        f"Create queries across these categories (ensure good distribution):\n"
+        f"1. **Core Information**: Direct answers and fundamental concepts\n"
+        f"2. **Comparative Analysis**: Comparisons with alternatives and competitors\n"
+        f"3. **Market Intelligence**: Trends, statistics, market dynamics\n"
+        f"4. **Technical Deep-Dive**: Specifications, features, capabilities\n"
+        f"5. **User Experience**: Reviews, testimonials, real-world usage\n"
+        f"6. **Strategic Considerations**: Cost analysis, ROI, decision factors\n"
+        f"7. **Future Outlook**: Predictions, upcoming developments\n"
+        f"8. **Expert Insights**: Professional opinions, industry analysis\n\n"
+        f"Return ONLY valid JSON in this exact format:\n"
+        f"{{\n"
+        f"  \"generation_details\": {{\n"
+        f"    \"target_query_count\": <number>,\n"
+        f"    \"reasoning_for_count\": \"<explanation>\",\n"
+        f"    \"research_strategy\": \"<overall approach>\"\n"
+        f"  }},\n"
+        f"  \"expanded_queries\": [\n"
+        f"    {{\n"
+        f"      \"query\": \"<specific research question>\",\n"
+        f"      \"category\": \"<one of the 8 categories above>\",\n"
+        f"      \"priority\": \"<high/medium/low>\",\n"
+        f"      \"expected_insights\": \"<what this query should reveal>\",\n"
+        f"      \"research_value\": \"<why this is important for decision-making>\"\n"
+        f"    }}\n"
+        f"  ]\n"
+        f"}}"
     )
+
+def generate_fanout(query, mode):
+    if not model:
+        st.error("Please configure Gemini API key")
+        return None
+        
+    prompt = QUERY_FANOUT_PROMPT(query, mode)
+    try:
+        response = model.generate_content(prompt)
+        json_text = response.text.strip()
+        
+        # Clean JSON
+        if json_text.startswith("```json"):
+            json_text = json_text[7:]
+        if json_text.endswith("```"):
+            json_text = json_text[:-3]
+        json_text = json_text.strip()
+
+        data = json.loads(json_text)
+        return data
+    except Exception as e:
+        st.error(f"Error generating fanout: {e}")
+        return None
+
+# Main Tabs
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["🎯 Query Research", "📄 PDF Analyzer", "✅ Fact Checker", "📊 Research Dashboard", "✍️ Content Generator"])
+
+with tab1:
+    st.header("🎯 Qforia Query Fan-Out Research")
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.subheader("Enter Your Research Query")
+        user_query = st.text_area(
+            "What would you like to research?", 
+            value="JEE Main How to Prepare",
+            height=100,
+            help="Enter any topic you want to research comprehensively"
+        )
+
+    with col2:
+        st.subheader("Research Settings")
+        mode = st.selectbox(
+            "Research Depth",
+            ["AI Overview (simple)", "AI Mode (complex)"],
+            help="Simple: 12+ focused queries | Complex: 25+ comprehensive queries"
+        )
+        
+        if st.button("🚀 Generate Research Queries", type="primary", use_container_width=True):
+            if not user_query.strip():
+                st.warning("Please enter a research query")
+            elif not gemini_key:
+                st.warning("Please enter your Gemini API key")
+            else:
+                with st.spinner("🤖 Generating comprehensive research queries..."):
+                    # Store user query for later use
+                    st.session_state.user_query = user_query
+                    results = generate_fanout(user_query, mode)
+                    
+                if results:
+                    st.session_state.fanout_results = results
+                    st.session_state.generation_details = results.get("generation_details", {})
+                    st.session_state.selected_queries = set()
+                    st.success("✅ Research queries generated successfully!")
+                    st.rerun()
+
+    # Display fanout results
+    if st.session_state.fanout_results:
+        st.markdown("---")
+        
+        # Show generation details
+        details = st.session_state.generation_details
+        if details:
+            st.subheader("🧠 Research Strategy")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Target Queries", details.get('target_query_count', 'N/A'))
+            with col2:
+                st.metric("Generated", len(st.session_state.fanout_results.get('expanded_queries', [])))
+            with col3:
+                if perplexity_key:
+                    st.metric("Research Ready", "✅")
+                else:
+                    st.metric("Research Ready", "❌ Need Perplexity Key")
+            
+            st.info(f"**Strategy:** {details.get('research_strategy', 'Not provided')}")
+
+        # Interactive query selection
+        st.subheader("📋 Research Queries - Select for Deep Research")
+        
+        queries = st.session_state.fanout_results.get('expanded_queries', [])
+        if queries:
+            # Category filter
+            categories = list(set(q.get('category', 'Unknown') for q in queries))
+            selected_categories = st.multiselect(
+                "Filter by Category:", 
+                categories, 
+                default=categories
+            )
+            
+            # Priority filter
+            priorities = list(set(q.get('priority', 'medium') for q in queries))
+            selected_priorities = st.multiselect(
+                "Filter by Priority:", 
+                priorities, 
+                default=priorities
+            )
+            
+            # Filter queries
+            filtered_queries = [
+                q for q in queries 
+                if q.get('category', 'Unknown') in selected_categories 
+                and q.get('priority', 'medium') in selected_priorities
+            ]
+            
+            st.write(f"Showing {len(filtered_queries)} of {len(queries)} queries")
+            
+            # Display queries with selection
+            for i, query_data in enumerate(filtered_queries):
+                query_id = f"query_{hash(query_data['query'])}"
+                
+                with st.container():
+                    col1, col2, col3 = st.columns([1, 6, 2])
+                    
+                    with col1:
+                        selected = st.checkbox("Select", key=f"checkbox_{query_id}")
+                        if selected:
+                            st.session_state.selected_queries.add(query_id)
+                        else:
+                            st.session_state.selected_queries.discard(query_id)
+                    
+                    with col2:
+                        priority_color = {'high': '🔴', 'medium': '🟡', 'low': '🟢'}.get(query_data.get('priority', 'medium'), '🟡')
+                        st.markdown(f"**{priority_color} {query_data['query']}**")
+                        st.caption(f"📁 {query_data.get('category', 'Unknown')} | 💡 {query_data.get('expected_insights', 'N/A')}")
+                    
+                    with col3:
+                        if query_id in st.session_state.research_results:
+                            st.success("✅ Researched")
+                        elif perplexity_key:
+                            if st.button("🔍 Research", key=f"research_{query_id}"):
+                                with st.spinner("Researching..."):
+                                    result = call_perplexity(query_data['query'])
+                                    if 'choices' in result:
+                                        st.session_state.research_results[query_id] = {
+                                            'query': query_data['query'],
+                                            'result': result['choices'][0]['message']['content'],
+                                            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M'),
+                                            'category': query_data.get('category', 'Unknown'),
+                                            'priority': query_data.get('priority', 'medium')
+                                        }
+                                        st.rerun()
+                        else:
+                            st.caption("Need Perplexity Key")
+                            
+                    st.markdown("---")
+            
+            # Bulk research
+            if st.session_state.selected_queries and perplexity_key:
+                if st.button("🚀 Research Selected Queries", type="secondary"):
+                    selected_query_data = [
+                        q for q in filtered_queries 
+                        if f"query_{hash(q['query'])}" in st.session_state.selected_queries
+                    ]
+                    
+                    progress_bar = st.progress(0)
+                    for i, query_data in enumerate(selected_query_data):
+                        query_id = f"query_{hash(query_data['query'])}"
+                        if query_id not in st.session_state.research_results:
+                            result = call_perplexity(query_data['query'])
+                            if 'choices' in result:
+                                st.session_state.research_results[query_id] = {
+                                    'query': query_data['query'],
+                                    'result': result['choices'][0]['message']['content'],
+                                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M'),
+                                    'category': query_data.get('category', 'Unknown'),
+                                    'priority': query_data.get('priority', 'medium')
+                                }
+                            time.sleep(1)
+                        progress_bar.progress((i + 1) / len(selected_query_data))
+                    st.success("✅ Bulk research completed!")
+                    st.rerun()
+
+with tab2:
+    st.header("📄 PDF Document Analyzer")
+    
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        uploaded_file = st.file_uploader(
+            "Upload PDF document for analysis or url pdf:", 
+            type=['pdf'],
+            help="Upload a PDF file to extract keywords, topics, and analyze content"
+        )
+        
+    with col2:
+        if st.button("🔍 Analyze PDF", type="primary", use_container_width=True):
+            if not uploaded_file:
+                st.warning("Please upload a PDF file")
+            elif not gemini_key:
+                st.warning("Please enter your Gemini API key")
+            else:
+                with st.spinner("📄 Extracting PDF content..."):
+                    pdf_text, error = extract_pdf_text(uploaded_file)
+                    
+                if pdf_text:
+                    st.success("✅ PDF content extracted successfully!")
+                    
+                    with st.spinner("🤖 Analyzing content and extracting keywords..."):
+                        analysis, error = analyze_pdf_content(pdf_text, uploaded_file.name)
+                    
+                    if analysis:
+                        st.session_state.pdf_analysis = analysis
+                        st.success("✅ Analysis completed!")
+                        st.rerun()
+                    else:
+                        st.error(f"Analysis failed: {error}")
+                else:
+                    st.error(f"PDF extraction failed: {error}")
+
+    # Display PDF analysis results
+    if st.session_state.pdf_analysis:
+        st.markdown("---")
+        analysis = st.session_state.pdf_analysis
+        
+        # Overview metrics
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Content Type", analysis.get('content_type', 'Unknown').title())
+        with col2:
+            st.metric("Domain", analysis.get('domain', 'Unknown').title())
+        with col3:
+            st.metric("Keywords Found", len(analysis.get('keywords', [])))
+        with col4:
+            st.metric("Enhancement Ops", len(analysis.get('enhancement_opportunities', [])))
+        
+        # Document Summary
+        if analysis.get('summary'):
+            st.subheader("📋 Document Summary")
+            st.info(analysis['summary'])
+        
+        # Keywords and Topics in columns
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if analysis.get('keywords'):
+                st.subheader("🔑 Keywords")
+                # Display keywords as tags
+                keywords_html = " ".join([f'<span style="background-color: #e1f5fe; padding: 4px 8px; margin: 2px; border-radius: 12px; font-size: 0.9em;">{keyword}</span>' for keyword in analysis['keywords']])
+                st.markdown(keywords_html, unsafe_allow_html=True)
+        
+        with col2:
+            if analysis.get('main_topics'):
+                st.subheader("📝 Main Topics")
+                for topic in analysis['main_topics']:
+                    st.write(f"• {topic}")
+        
+        # Key concepts
+        if analysis.get('key_concepts'):
+            st.subheader("🎯 Key Concepts")
+            concepts_html = " ".join([f'<span style="background-color: #f3e5f5; padding: 4px 8px; margin: 2px; border-radius: 12px; font-size: 0.9em;">{concept}</span>' for concept in analysis['key_concepts']])
+            st.markdown(concepts_html, unsafe_allow_html=True)
+        
+        # Credibility indicators
+        if analysis.get('credibility_indicators'):
+            st.subheader("✅ Credibility Indicators")
+            for indicator in analysis['credibility_indicators']:
+                st.write(f"• {indicator}")
+        
+        # Missing context & enhancement opportunities
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if analysis.get('missing_context'):
+                st.subheader("❓ Missing Context")
+                for item in analysis['missing_context']:
+                    with st.expander(f"📌 {item['topic']}"):
+                        st.write(f"**Missing:** {item['missing_info']}")
+                        if perplexity_key and st.button(f"Research: {item['topic']}", key=f"missing_{hash(item['topic'])}"):
+                            result = call_perplexity(item['research_query'])
+                            if 'choices' in result:
+                                st.write("**Research Result:**")
+                                st.write(result['choices'][0]['message']['content'])
+        
+        with col2:
+            if analysis.get('enhancement_opportunities'):
+                st.subheader("🚀 Enhancement Opportunities")
+                for item in analysis['enhancement_opportunities']:
+                    with st.expander(f"💡 {item['area']}"):
+                        st.write(f"**Suggested Research:** {item['suggested_research']}")
+                        if perplexity_key and st.button(f"Enhance: {item['area']}", key=f"enhance_{hash(item['area'])}"):
+                            result = call_perplexity(item['suggested_research'])
+                            if 'choices' in result:
+                                st.write("**Enhancement Data:**")
+                                st.write(result['choices'][0]['message']['content'])
+
+with tab3:
+    st.header("✅ Fact Checker & Claim Verification")
+    
+    # Manual fact checking
+    st.subheader("🔍 Manual Fact Check")
+    fact_query = st.text_input("Enter claim to verify:", placeholder="e.g., Tesla Model Y is the best-selling EV in 2024")
     
     col1, col2 = st.columns([1, 4])
     with col1:
-        if st.button("🚀 Generate Queries", use_container_width=True):
-            if not query_input:
-                st.error("Please enter a topic")
-            elif not model:
-                st.error("Please provide Gemini API key")
+        if st.button("🔍 Verify Fact", type="primary"):
+            if fact_query and perplexity_key:
+                with st.spinner("Verifying claim..."):
+                    verification_prompt = f"Fact-check this claim with current data and sources: {fact_query}. Provide verification status, supporting evidence, and source citations."
+                    result = call_perplexity(fact_query, verification_prompt)
+                    if 'choices' in result:
+                        st.write("**Verification Result:**")
+                        st.write(result['choices'][0]['message']['content'])
+            elif not perplexity_key:
+                st.warning("Please enter Perplexity API key")
             else:
-                with st.spinner("Generating diverse research queries..."):
-                    queries, error = generate_query_fanout(query_input)
+                st.warning("Please enter a claim to verify")
+    
+    # Auto fact-checking from PDF analysis
+    if st.session_state.pdf_analysis and st.session_state.pdf_analysis.get('fact_check_items'):
+        st.markdown("---")
+        st.subheader("🤖 Auto-Detected Claims for Verification")
+        
+        for item in st.session_state.pdf_analysis['fact_check_items']:
+            with st.expander(f"📋 {item['claim']}", expanded=False):
+                if perplexity_key:
+                    if st.button(f"Verify Claim", key=f"verify_{hash(item['claim'])}"):
+                        with st.spinner("Verifying..."):
+                            result = call_perplexity(item['verification_query'], "Fact-check this claim with current data, sources, and verification status.")
+                            if 'choices' in result:
+                                st.write("**Verification Result:**")
+                                st.write(result['choices'][0]['message']['content'])
+                else:
+                    st.caption("Perplexity API key required for verification")
+
+with tab4:
+    st.header("📊 Research Dashboard")
+    
+    if st.session_state.research_results:
+        # Summary metrics
+        total_researched = len(st.session_state.research_results)
+        categories_researched = len(set(r['category'] for r in st.session_state.research_results.values()))
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Researched", total_researched)
+        with col2:
+            st.metric("Categories Covered", categories_researched)
+        with col3:
+            st.metric("Research Depth", "Comprehensive" if total_researched > 10 else "Basic")
+        
+        # Export research results
+        research_df = pd.DataFrame([
+            {
+                'Query': data['query'],
+                'Category': data['category'],
+                'Priority': data['priority'],
+                'Research Findings': data['result'],
+                'Timestamp': data['timestamp']
+            }
+            for data in st.session_state.research_results.values()
+        ])
+        
+        csv_data = research_df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            "📥 Download Complete Research Results",
+            data=csv_data,
+            file_name=f"qforia_complete_research_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            mime="text/csv"
+        )
+        
+        # Detailed results
+        st.subheader("📋 Detailed Research Results")
+        for query_id, data in st.session_state.research_results.items():
+            with st.expander(f"🔍 {data['query']}", expanded=False):
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    st.markdown("**Research Findings:**")
+                    st.write(data['result'])
+                with col2:
+                    st.caption(f"**Category:** {data['category']}")
+                    st.caption(f"**Priority:** {data['priority']}")
+                    st.caption(f"**Researched:** {data['timestamp']}")
+    else:
+        st.info("No research results yet. Start by using the Query Research or PDF Analyzer tabs.")
+
+with tab5:
+    st.header("✍️ AI Content Generator")
+    st.markdown("Generate comprehensive articles based on your research data using Grok AI")
+    
+    if not grok_key:
+        st.warning("⚠️ Please enter your Grok API key in the sidebar to use content generation")
+    else:
+        # Check if there's research data available
+        if not st.session_state.research_results:
+            st.info("💡 **Tip:** First conduct research in the Query Research tab to gather data for content generation")
+        
+        # Content Generation Configuration
+        st.subheader("📝 Content Configuration")
+        
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            # Get default topic from session state if available
+            default_topic = ""
+            if 'user_query' in st.session_state:
+                default_topic = st.session_state.user_query
+            
+            content_topic = st.text_input(
+                "Article Topic/Title",
+                value=default_topic,
+                placeholder="e.g., Complete Guide to JEE Main Preparation",
+                help="Main topic for your article"
+            )
+            
+            content_description = st.text_area(
+                "Article Description (optional)",
+                placeholder="Describe what the article should cover...",
+                height=100
+            )
+        
+        with col2:
+            content_tone = st.selectbox(
+                "Content Tone",
+                ["Professional", "Conversational", "Educational", "Technical", "Persuasive"],
+                help="Writing style for the article"
+            )
+            
+            target_words = st.selectbox(
+                "Target Word Count",
+                [1500, 2000, 2500, 3000, 4000, 5000],
+                index=2,
+                help="Approximate total words for the article"
+            )
+        
+        st.divider()
+        
+        # Step 1: Generate Structure
+        if 'content_structure' not in st.session_state or not st.session_state.content_structure:
+            st.subheader("Step 1: Generate Article Structure")
+            
+            if st.button("🏗️ Generate Article Structure", type="primary", use_container_width=True):
+                if not content_topic:
+                    st.error("Please enter an article topic")
+                elif not st.session_state.research_results:
+                    st.warning("⚠️ No research data available. The article will be based on AI knowledge only.")
+                    
+                with st.spinner("🤖 Generating article structure..."):
+                    structure, error = generate_content_structure(
+                        st.session_state.research_results,
+                        content_topic
+                    )
                     
                     if error:
-                        st.error(f"Error: {error}")
-                    else:
-                        st.session_state.fanout_results = queries
-                        st.session_state.generation_details = {
-                            'topic': query_input,
-                            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            'model': gemini_model
-                        }
-                        st.session_state.user_query = query_input
-                        st.success(f"✅ Generated {len(queries)} queries!")
+                        st.error(f"❌ {error}")
+                    elif structure:
+                        st.session_state.content_structure = structure
+                        st.success("✅ Article structure generated!")
                         st.rerun()
-    
-    with col2:
-        if st.session_state.fanout_results:
-            if st.button("🗑️ Clear Results", use_container_width=True):
-                st.session_state.fanout_results = None
-                st.session_state.generation_details = None
-                st.session_state.research_results = {}
-                st.session_state.selected_queries = set()
-                st.session_state.user_query = ''
-                st.rerun()
-    
-    # Display Results
-    if st.session_state.fanout_results:
-        st.divider()
         
-        # Generation info
-        if st.session_state.generation_details:
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Topic", st.session_state.generation_details.get('topic', 'N/A'))
-            with col2:
-                st.metric("Queries Generated", len(st.session_state.fanout_results))
-            with col3:
-                st.metric("Model Used", st.session_state.generation_details.get('model', 'N/A'))
-        
-        st.divider()
-        st.subheader("📋 Generated Queries")
-        
-        # Query selection
-        st.info("💡 Select queries below to perform research")
-        
-        # Select all / Deselect all buttons
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("✅ Select All"):
-                st.session_state.selected_queries = set(range(len(st.session_state.fanout_results)))
-                st.rerun()
-        with col2:
-            if st.button("❌ Deselect All"):
-                st.session_state.selected_queries = set()
-                st.rerun()
-        
-        # Display queries with checkboxes
-        for idx, query in enumerate(st.session_state.fanout_results):
-            is_selected = idx in st.session_state.selected_queries
+        # Step 2: Review and Edit Structure
+        if st.session_state.content_structure:
+            st.success("✅ Article structure generated")
             
-            col1, col2 = st.columns([0.1, 0.9])
-            with col1:
-                if st.checkbox("", value=is_selected, key=f"query_{idx}", label_visibility="collapsed"):
-                    st.session_state.selected_queries.add(idx)
-                else:
-                    st.session_state.selected_queries.discard(idx)
-            with col2:
-                st.markdown(f"**{idx + 1}.** {query}")
-        
-        # Research button
-        if st.session_state.selected_queries:
-            st.divider()
-            st.info(f"🎯 {len(st.session_state.selected_queries)} queries selected for research")
+            structure = st.session_state.content_structure
             
-            if st.button("🔬 Start Research on Selected Queries", use_container_width=True):
-                if not perplexity_key:
-                    st.error("❌ Perplexity API key required for research")
-                else:
-                    # Clear previous research results
-                    st.session_state.research_results = {}
-                    
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-                    
-                    selected_list = sorted(list(st.session_state.selected_queries))
-                    
-                    for i, query_idx in enumerate(selected_list):
-                        query = st.session_state.fanout_results[query_idx]
-                        status_text.text(f"Researching: {query}")
-                        
-                        # Call Perplexity
-                        result = call_perplexity(query)
-                        
-                        # Store result
-                        st.session_state.research_results[query_idx] = {
-                            'query': query,
-                            'result': result,
-                            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        }
-                        
-                        # Update progress
-                        progress = (i + 1) / len(selected_list)
-                        progress_bar.progress(progress)
-                        
-                        time.sleep(0.5)  # Rate limiting
-                    
-                    status_text.text("✅ Research complete!")
-                    progress_bar.progress(1.0)
-                    st.success(f"🎉 Completed research on {len(selected_list)} queries!")
-                    time.sleep(1)
-                    st.rerun()
-        
-        # FIXED: Display Research Results Section - Now displays correctly after research
-        if st.session_state.research_results:
-            st.divider()
-            st.subheader("🔍 Research Results")
+            st.subheader("📋 Article Structure")
             
-            st.info(f"✅ Completed {len(st.session_state.research_results)} research queries")
-            
-            # Show research results in expandable sections
-            for query_id in sorted(st.session_state.research_results.keys()):
-                research_data = st.session_state.research_results[query_id]
-                with st.expander(f"📊 {research_data['query']}", expanded=False):
-                    result = research_data['result']
-                    
-                    # Display result
-                    if isinstance(result, dict):
-                        if 'error' in result:
-                            st.error(f"❌ {result['error']}")
-                        elif 'choices' in result:
-                            content = result['choices'][0]['message']['content']
-                            st.markdown(content)
-                            
-                            # Show timestamp
-                            st.caption(f"📅 Researched: {research_data['timestamp']}")
-                        else:
-                            st.json(result)
-                    else:
-                        st.markdown(result)
-                    
-                    st.caption(f"🔑 Query ID: {query_id}")
-        
-        # Export options
-        if st.session_state.fanout_results:
-            st.divider()
-            st.subheader("📥 Export Options")
-            
-            # Prepare export data - safe access to avoid KeyError
-            if st.session_state.generation_details:
-                export_data = {
-                    'topic': st.session_state.generation_details['topic'],
-                    'timestamp': st.session_state.generation_details['timestamp'],
-                    'model': st.session_state.generation_details['model'],
-                    'queries': st.session_state.fanout_results
-                }
-            else:
-                export_data = {
-                    'topic': 'Unknown Topic',
-                    'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    'model': 'Unknown',
-                    'queries': st.session_state.fanout_results
-                }
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                # JSON export
-                json_data = json.dumps(export_data, indent=2)
-                st.download_button(
-                    "📄 Download JSON",
-                    data=json_data,
-                    file_name=f"queries_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                    mime="application/json",
-                    use_container_width=True
-                )
-            
-            with col2:
-                # CSV export
-                df = pd.DataFrame({
-                    'Query_Number': range(1, len(st.session_state.fanout_results) + 1),
-                    'Query': st.session_state.fanout_results
-                })
-                csv_data = df.to_csv(index=False)
-                st.download_button(
-                    "📊 Download CSV",
-                    data=csv_data,
-                    file_name=f"queries_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv",
-                    use_container_width=True
-                )
-
-# TAB 2: PDF Analysis
-with tab2:
-    st.header("PDF Content Analysis")
-    
-    uploaded_pdf = st.file_uploader("Upload PDF Document", type=['pdf'])
-    
-    if uploaded_pdf:
-        with st.spinner("Extracting PDF content..."):
-            pdf_text = extract_text_from_pdf(uploaded_pdf)
-            
-            if "Error" in pdf_text:
-                st.error(pdf_text)
-            else:
-                st.success(f"✅ Extracted {len(pdf_text)} characters")
-                
-                with st.expander("📄 View Extracted Text"):
-                    st.text_area("PDF Content", pdf_text[:2000], height=300, disabled=True)
-                
-                if st.button("🔍 Analyze Topics"):
-                    if not model:
-                        st.error("Gemini API key required")
-                    else:
-                        with st.spinner("Analyzing PDF content..."):
-                            topics, error = analyze_pdf_content(pdf_text)
-                            
-                            if error:
-                                st.error(f"Error: {error}")
-                            else:
-                                st.session_state.pdf_analysis = {
-                                    'topics': topics,
-                                    'pdf_name': uploaded_pdf.name,
-                                    'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                }
-                                st.success(f"✅ Identified {len(topics)} key topics!")
-                                st.rerun()
-        
-        # Display analyzed topics
-        if st.session_state.pdf_analysis:
-            st.divider()
-            st.subheader("📊 Identified Topics")
-            
-            topics = st.session_state.pdf_analysis['topics']
-            
-            for idx, topic in enumerate(topics):
-                col1, col2 = st.columns([0.8, 0.2])
+            # Display article metadata
+            with st.expander("📄 Article Metadata", expanded=True):
+                col1, col2 = st.columns(2)
                 with col1:
-                    st.markdown(f"**{idx + 1}.** {topic}")
+                    article_title = st.text_input(
+                        "Article Title",
+                        value=structure.get('article_title', content_topic),
+                        key="edit_title"
+                    )
                 with col2:
-                    if st.button("🔬 Research", key=f"research_topic_{idx}"):
-                        # Add to enhanced topics for research
-                        if topic not in st.session_state.enhanced_topics:
-                            st.session_state.enhanced_topics.append(topic)
-                            st.success(f"Added '{topic}' to research queue")
-
-# TAB 3: Fact Checker
-with tab3:
-    st.header("Fact Checker")
-    
-    claim_input = st.text_area(
-        "Enter claim to verify:",
-        height=100,
-        placeholder="E.g., 'AI will replace 50% of jobs by 2030'"
-    )
-    
-    if st.button("✅ Verify Claim", use_container_width=True):
-        if not claim_input:
-            st.error("Please enter a claim")
-        elif not perplexity_key:
-            st.error("Perplexity API key required")
-        else:
-            with st.spinner("Verifying claim..."):
-                system_prompt = "Fact-check this claim. Provide evidence-based verification with sources. Rate confidence as: HIGH, MEDIUM, or LOW. Format: VERDICT | CONFIDENCE | EXPLANATION"
-                result = call_perplexity(claim_input, system_prompt)
+                    st.metric("Total Sections", len(structure.get('sections', [])))
                 
-                if 'error' in result:
-                    st.error(f"Error: {result['error']}")
-                elif 'choices' in result:
-                    content = result['choices'][0]['message']['content']
-                    st.markdown("### Verification Result")
-                    st.markdown(content)
-                else:
-                    st.json(result)
-
-# TAB 4: Research Dashboard & Content Generation
-with tab4:
-    st.header("📊 Research Dashboard & AI Content Generator")
-    
-    # Check if research results exist
-    if not st.session_state.research_results:
-        st.warning("⚠️ No research data available. Please perform research in the 'Query Fan-Out' tab first.")
-        st.info("💡 Go to 'Query Fan-Out' tab → Generate queries → Select queries → Start Research")
-    else:
-        # Show research summary
-        st.success(f"✅ {len(st.session_state.research_results)} research queries available for content generation")
-        
-        with st.expander("📊 View Available Research Data"):
-            for query_id, research_data in st.session_state.research_results.items():
-                st.markdown(f"**{query_id + 1}.** {research_data['query']}")
-        
-        st.divider()
-        st.subheader("📝 AI Content Generator")
-        
-        # Content generation inputs
-        with st.container():
-            content_topic = st.text_input(
-                "Article Title (H1):",
-                value=st.session_state.user_query if st.session_state.user_query else "",
-                placeholder="E.g., 'Complete Guide to AI in Healthcare 2024'"
-            )
+                meta_desc = st.text_area(
+                    "Meta Description",
+                    value=structure.get('meta_description', ''),
+                    height=80,
+                    key="edit_meta"
+                )
             
-            # ENHANCED: User Intent input with clear emphasis on its importance
-            user_intent = st.text_area(
-                "User Intent / Purpose (CRITICAL - Determines output format):",
-                height=120,
-                placeholder="E.g., 'Compare pricing and features of different tools with detailed tables', 'Show step-by-step implementation with specific technical data', 'Provide statistical comparison of market leaders with quantitative metrics', 'Create data-heavy analysis with minimal narrative'",
-                help="⚠️ IMPORTANT: This field determines how content is generated. Be specific about wanting tables, data points, comparisons, etc. The more detail you provide about desired output format, the better the results."
-            )
+            # Display and edit sections
+            st.subheader("📑 Article Sections")
             
-            if st.button("📝 Generate Article Structure", use_container_width=True):
-                if not content_topic:
-                    st.error("❌ Please provide an article title")
-                elif not user_intent:
-                    st.error("❌ Please describe the user intent/purpose - this is critical for generating appropriate content format")
-                elif not grok_key:
-                    st.error("❌ Grok API key required")
-                else:
-                    with st.spinner("Creating article structure from your research queries..."):
-                        structure, error = generate_content_structure_from_queries(
-                            st.session_state.research_results,
-                            content_topic,
-                            st.session_state.selected_queries
+            edited_sections = []
+            for idx, section in enumerate(structure.get('sections', [])):
+                with st.expander(f"**Section {idx+1}: {section['title']}**", expanded=False):
+                    col1, col2 = st.columns([3, 1])
+                    
+                    with col1:
+                        section_title = st.text_input(
+                            "Section Title",
+                            value=section['title'],
+                            key=f"section_title_{idx}"
                         )
                         
-                        if error:
-                            st.error(f"❌ Structure generation failed: {error}")
-                        else:
-                            st.session_state.content_structure = structure
-                            st.session_state.user_intent = user_intent  # Store intent
-                            st.success("✅ Article structure created from your queries!")
-                            st.rerun()
-            
-            # Display and Edit Structure
-            if st.session_state.content_structure:
-                st.divider()
-                st.subheader("📋 Article Structure (Based on Your Queries)")
-                
-                structure = st.session_state.content_structure
-                
-                # Display title and meta
-                st.markdown(f"**Title (H1):** {structure['article_title']}")
-                st.markdown(f"**Meta Description:** {structure['meta_description']}")
-                
-                st.divider()
-                st.markdown("**Sections (H2 Headings - Exact Query Text):**")
-                
-                # Editable sections
-                edited_sections = []
-                
-                for idx, section in enumerate(structure['sections']):
-                    with st.expander(f"Section {idx + 1}: {section['title']}", expanded=True):
-                        col1, col2 = st.columns([3, 1])
+                        section_desc = st.text_area(
+                            "Description",
+                            value=section.get('description', ''),
+                            height=80,
+                            key=f"section_desc_{idx}"
+                        )
                         
-                        with col1:
-                            section_title = st.text_input(
-                                "Section Title (from query)",
-                                value=section['title'],
-                                key=f"section_title_{idx}",
-                                label_visibility="collapsed"
-                            )
+                        key_points = st.text_area(
+                            "Key Points",
+                            value="\n".join(section.get('key_points', [])),
+                            height=100,
+                            key=f"section_points_{idx}"
+                        )
+                    
+                    with col2:
+                        include_section = st.checkbox(
+                            "Include",
+                            value=True,
+                            key=f"include_{idx}"
+                        )
                         
-                        with col2:
-                            needs_table = st.checkbox(
-                                "Include Table",
-                                value=section.get('needs_table', True),
-                                key=f"table_{idx}"
-                            )
+                        word_count = st.number_input(
+                            "Words",
+                            min_value=200,
+                            max_value=1000,
+                            value=section.get('estimated_words', 400),
+                            step=50,
+                            key=f"words_{idx}"
+                        )
                         
-                        section_copy = section.copy()
-                        section_copy['title'] = section_title
-                        section_copy['needs_table'] = needs_table
-                        edited_sections.append(section_copy)
-                
-                structure['sections'] = edited_sections
-                st.session_state.content_structure = structure
-                
-                # Generate Content Button
-                st.divider()
-                
-                if st.button("🚀 Generate Full Article", use_container_width=True, type="primary"):
-                    if not grok_key:
-                        st.error("❌ Grok API key required")
+                        needs_table = st.checkbox(
+                            "📊 Table",
+                            value=section.get('needs_table', False),
+                            key=f"table_{idx}"
+                        )
+                        
+                        needs_infographic = st.checkbox(
+                            "📈 Infographic",
+                            value=section.get('needs_infographic', False),
+                            key=f"infographic_{idx}"
+                        )
+                    
+                    if needs_table:
+                        table_desc = st.text_input(
+                            "Table Description",
+                            value=section.get('table_description', ''),
+                            key=f"table_desc_{idx}"
+                        )
                     else:
-                        # Clear previous content
-                        st.session_state.generated_content = {}
+                        table_desc = ""
+                    
+                    if needs_infographic:
+                        infographic_desc = st.text_input(
+                            "Infographic Description",
+                            value=section.get('infographic_description', ''),
+                            key=f"infographic_desc_{idx}"
+                        )
+                    else:
+                        infographic_desc = ""
+                    
+                    if include_section:
+                        edited_sections.append({
+                            'title': section_title,
+                            'description': section_desc,
+                            'key_points': [p.strip() for p in key_points.split('\n') if p.strip()],
+                            'estimated_words': word_count,
+                            'needs_table': needs_table,
+                            'table_description': table_desc,
+                            'needs_infographic': needs_infographic,
+                            'infographic_description': infographic_desc
+                        })
+            
+            # Update structure with edits
+            st.session_state.content_structure['sections'] = edited_sections
+            st.session_state.content_structure['article_title'] = article_title
+            st.session_state.content_structure['meta_description'] = meta_desc
+            
+            st.divider()
+            
+            # Step 3: Generate Content
+            col1, col2, col3 = st.columns([1, 1, 1])
+            
+            with col1:
+                if st.button("🔄 Regenerate Structure", use_container_width=True):
+                    st.session_state.content_structure = []
+                    st.session_state.generated_content = {}
+                    st.rerun()
+            
+            with col2:
+                # Show current progress
+                generated_count = len(st.session_state.generated_content)
+                total_count = len(edited_sections)
+                st.metric("Progress", f"{generated_count}/{total_count} sections")
+            
+            with col3:
+                if st.button("🚀 Generate Full Article", type="primary", use_container_width=True):
+                    if not edited_sections:
+                        st.error("No sections to generate!")
+                    else:
+                        # Compile research context
+                        research_context = ""
+                        for data in st.session_state.research_results.values():
+                            research_context += f"\n{data['query']}: {data['result'][:300]}..."
                         
+                        # Generate each section
                         progress_bar = st.progress(0)
                         status_text = st.empty()
                         
-                        # FIXED: Get user intent from session state (guaranteed to exist now)
-                        user_intent = st.session_state.get('user_intent', 'Provide comprehensive data-driven information')
-                        
-                        successful_sections = 0
-                        skipped_sections = []
-                        
                         for idx, section in enumerate(edited_sections):
                             section_key = f"section_{idx}"
-                            status_text.text(f"Generating: {section['title']}")
                             
-                            # ENHANCED: Generate section content with user intent
-                            content, error = generate_section_content(
-                                section,
-                                st.session_state.research_results,
-                                content_topic,
-                                user_intent
-                            )
-                            
-                            # ENHANCED: Skip section if insufficient data
-                            if error and "INSUFFICIENT_DATA" in error:
-                                status_text.text(f"⚠️ Skipping '{section['title']}' - insufficient research data")
-                                skipped_sections.append(section['title'])
-                                time.sleep(1)
+                            if section_key in st.session_state.generated_content:
                                 continue
                             
+                            status_text.text(f"✍️ Generating: {section['title']}...")
+                            
+                            # Generate section content
+                            content, error = generate_section_content(
+                                section,
+                                research_context,
+                                content_tone.lower()
+                            )
+                            
                             if error:
-                                st.warning(f"⚠️ Error generating '{section['title']}': {error}")
-                                time.sleep(1)
+                                st.error(f"❌ Error generating {section['title']}: {error}")
                                 continue
                             
                             section_data = {
@@ -1177,22 +1198,13 @@ with tab4:
                                 'section': section
                             }
                             
-                            # ENHANCED: Generate table if needed with user intent
+                            # Generate table if needed
                             if section.get('needs_table'):
-                                table, table_error = generate_table_content(
-                                    section,
-                                    st.session_state.research_results,
-                                    user_intent
-                                )
+                                table, table_error = generate_table_content(section)
                                 if table and not table_error:
                                     section_data['table'] = table
-                                elif table_error and "INSUFFICIENT_DATA" in table_error:
-                                    status_text.text(f"ℹ️ Table skipped for '{section['title']}' - insufficient data")
-                                elif table_error:
-                                    st.info(f"ℹ️ Could not generate table for '{section['title']}': {table_error}")
                             
                             st.session_state.generated_content[section_key] = section_data
-                            successful_sections += 1
                             
                             # Update progress
                             progress = (idx + 1) / len(edited_sections)
@@ -1202,14 +1214,7 @@ with tab4:
                         
                         status_text.text("✅ Article generation complete!")
                         progress_bar.progress(1.0)
-                        
-                        if successful_sections > 0:
-                            st.success(f"🎉 Successfully generated {successful_sections} sections!")
-                            if skipped_sections:
-                                st.info(f"ℹ️ Skipped {len(skipped_sections)} sections due to insufficient data: {', '.join(skipped_sections[:3])}{'...' if len(skipped_sections) > 3 else ''}")
-                        else:
-                            st.error("❌ No sections could be generated. The research data may be insufficient.")
-                        
+                        st.success("🎉 Article generated successfully!")
                         time.sleep(2)
                         st.rerun()
             
@@ -1218,44 +1223,33 @@ with tab4:
                 st.divider()
                 st.subheader("📄 Generated Article")
                 
-                # Article preview - safe access to structure
-                article_title = st.session_state.content_structure.get('article_title', 'Untitled Article')
-                meta_desc = st.session_state.content_structure.get('meta_description', '')
-                
-                st.markdown(f"# {article_title}")
-                if meta_desc:
-                    st.caption(f"*{meta_desc}*")
+                # Article preview
+                st.markdown(f"# {st.session_state.content_structure['article_title']}")
+                st.caption(f"*{st.session_state.content_structure.get('meta_description', '')}*")
                 st.divider()
                 
                 total_words = 0
                 
                 for idx, section_key in enumerate(sorted(st.session_state.generated_content.keys())):
-                    section_data = st.session_state.generated_content.get(section_key, {})
-                    if not section_data:
-                        continue
-                        
-                    section = section_data.get('section', {})
-                    content = section_data.get('content', '')
+                    section_data = st.session_state.generated_content[section_key]
+                    section = section_data['section']
+                    content = section_data['content']
                     
-                    section_title = section.get('title', f'Section {idx + 1}')
-                    st.markdown(f"## {section_title}")
+                    st.markdown(f"## {section['title']}")
                     st.markdown(content)
                     
                     # Show table if generated
                     if 'table' in section_data:
-                        table = section_data.get('table', {})
-                        table_title = table.get('table_title', 'Comparison Table')
-                        st.markdown(f"### {table_title}")
+                        table = section_data['table']
+                        st.markdown(f"### {table.get('table_title', 'Comparison Table')}")
                         
                         # Create dataframe for display
-                        if 'headers' in table and 'rows' in table:
-                            df = pd.DataFrame(table['rows'], columns=table['headers'])
-                            st.dataframe(df, use_container_width=True, hide_index=True)
+                        df = pd.DataFrame(table['rows'], columns=table['headers'])
+                        st.dataframe(df, use_container_width=True, hide_index=True)
                     
                     # Show infographic suggestion
                     if section.get('needs_infographic'):
-                        infographic_desc = section.get('infographic_description', 'Visual representation recommended')
-                        st.info(f"💡 **Infographic Suggestion:** {infographic_desc}")
+                        st.info(f"💡 **Infographic Suggestion:** {section.get('infographic_description', 'Visual representation recommended')}")
                     
                     st.divider()
                     
@@ -1270,21 +1264,19 @@ with tab4:
                 # Prepare data for export
                 sections_list = []
                 for section_key in sorted(st.session_state.generated_content.keys()):
-                    section_data = st.session_state.generated_content.get(section_key)
-                    if section_data:
-                        sections_list.append(section_data)
+                    sections_list.append(st.session_state.generated_content[section_key])
                 
                 # Get keywords
-                article_keywords = st.session_state.content_structure.get('semantic_keywords', [])
+                article_keywords = st.session_state.get('keywords', [])
                 
                 # Export buttons in columns
                 col1, col2, col3 = st.columns(3)
                 
                 with col1:
-                    # FIXED: DOCX Export with complete markdown cleaning
+                    # DOCX Export
                     if DOCX_AVAILABLE:
                         docx_buffer = export_to_docx(
-                            st.session_state.content_structure.get('article_title', 'Article'),
+                            st.session_state.content_structure['article_title'],
                             st.session_state.content_structure.get('meta_description', ''),
                             sections_list,
                             article_keywords
@@ -1302,9 +1294,9 @@ with tab4:
                         st.warning("Install python-docx for DOCX export")
                 
                 with col2:
-                    # FIXED: Clean HTML Export with complete markdown cleaning
+                    # Clean HTML Export
                     html_content = export_to_html(
-                        st.session_state.content_structure.get('article_title', 'Article'),
+                        st.session_state.content_structure['article_title'],
                         st.session_state.content_structure.get('meta_description', ''),
                         sections_list,
                         article_keywords
@@ -1319,59 +1311,38 @@ with tab4:
                     )
                 
                 with col3:
-                    # FIXED: Text Export with complete markdown cleaning
-                    article_title = st.session_state.content_structure.get('article_title', 'Article')
-                    article_meta = st.session_state.content_structure.get('meta_description', '')
-                    
-                    full_article = f"{clean_markdown_symbols(article_title)}\n\n"
-                    if article_meta:
-                        full_article += f"{clean_markdown_symbols(article_meta)}\n\n"
+                    # Markdown Export (original)
+                    full_article = f"# {st.session_state.content_structure['article_title']}\n\n"
+                    full_article += f"*{st.session_state.content_structure.get('meta_description', '')}*\n\n"
                     full_article += "---\n\n"
                     
                     for section_key in sorted(st.session_state.generated_content.keys()):
-                        section_data = st.session_state.generated_content.get(section_key, {})
-                        if not section_data:
-                            continue
-                            
-                        section = section_data.get('section', {})
+                        section_data = st.session_state.generated_content[section_key]
+                        section = section_data['section']
                         
-                        # Clean section title completely
-                        section_title = clean_markdown_symbols(section.get('title', 'Section'))
-                        full_article += f"{section_title}\n\n"
-                        
-                        # Clean content completely - remove ALL markdown symbols
-                        content_clean = clean_markdown_symbols(section_data.get('content', ''))
-                        full_article += f"{content_clean}\n\n"
+                        full_article += f"## {section['title']}\n\n"
+                        full_article += f"{section_data['content']}\n\n"
                         
                         if 'table' in section_data:
-                            table = section_data.get('table', {})
-                            table_title = clean_markdown_symbols(table.get('table_title', 'Table'))
-                            full_article += f"{table_title}\n\n"
-                            
-                            headers = table.get('headers', [])
-                            rows = table.get('rows', [])
-                            
-                            if headers:
-                                headers_clean = [clean_markdown_symbols(h) for h in headers]
-                                full_article += " | ".join(headers_clean) + "\n"
-                                full_article += " | ".join(["---"] * len(headers_clean)) + "\n"
-                                
-                                for row in rows:
-                                    clean_row = [clean_markdown_symbols(cell) for cell in row]
-                                    full_article += " | ".join(clean_row) + "\n"
-                                full_article += "\n"
+                            table = section_data['table']
+                            full_article += f"### {table.get('table_title', 'Table')}\n\n"
+                            headers = table['headers']
+                            full_article += "| " + " | ".join(headers) + " |\n"
+                            full_article += "| " + " | ".join(["---"] * len(headers)) + " |\n"
+                            for row in table['rows']:
+                                full_article += "| " + " | ".join(str(cell) for cell in row) + " |\n"
+                            full_article += "\n"
                         
                         if section.get('needs_infographic'):
-                            infographic = clean_markdown_symbols(section.get('infographic_description', 'Visual recommended'))
-                            full_article += f"💡 Infographic: {infographic}\n\n"
+                            full_article += f"*💡 Infographic: {section.get('infographic_description', 'Visual recommended')}*\n\n"
                         
                         full_article += "---\n\n"
                     
                     st.download_button(
-                        "📝 Download Text",
+                        "📝 Download Markdown",
                         data=full_article.encode('utf-8'),
-                        file_name=f"{content_topic.replace(' ', '_')}.txt",
-                        mime="text/plain",
+                        file_name=f"{content_topic.replace(' ', '_')}.md",
+                        mime="text/markdown",
                         use_container_width=True
                     )
                 
@@ -1379,24 +1350,23 @@ with tab4:
                 with st.expander("ℹ️ Export Format Details"):
                     st.markdown("""
                     **DOCX (Word):**
-                    - Full formatting with proper headings
-                    - One H1 title, H2 for sections, H3 for subsections
-                    - Tables properly formatted with bold headers
-                    - ✅ **Clean output with NO markdown symbols (*, #, _)**
+                    - Full formatting (bold, italic, tables)
+                    - One H1 title only
+                    - H2 for sections, H3 for subsections
                     - Editable in Microsoft Word/Google Docs
+                    - Tables properly formatted
                     
                     **HTML (Clean):**
-                    - No html, head, or meta tags (ready for CMS)
-                    - One H1 title, H2 for sections, H3 for subsections
-                    - Semantic HTML structure with proper lists
-                    - Tables with thead/tbody markup
-                    - ✅ **Clean output with NO markdown symbols (*, #, _)**
+                    - No html, head, or meta tags
+                    - One H1 title only
+                    - Ready to paste into CMS/website
+                    - Semantic HTML structure
+                    - Tables with proper markup
                     
-                    **Text:**
-                    - Plain text format
-                    - ✅ **NO formatting symbols or markdown (*, #, _)**
-                    - Clean, readable content
-                    - Tables in simple text format
+                    **Markdown:**
+                    - Plain text with formatting
+                    - Works with any markdown editor
+                    - Easy to convert to other formats
                     """)
 
 # Clear all data button
@@ -1410,7 +1380,6 @@ if st.sidebar.button("🗑️ Clear All Data"):
     st.session_state.generated_content = {}
     st.session_state.content_structure = []
     st.session_state.user_query = ''
-    st.session_state.user_intent = ''
     st.success("All data cleared!")
     st.rerun()
 
