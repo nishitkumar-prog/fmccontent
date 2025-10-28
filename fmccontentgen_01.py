@@ -39,7 +39,7 @@ if 'pdf_analysis' not in st.session_state:
     st.session_state.pdf_analysis = None
 if 'enhanced_topics' not in st.session_state:
     st.session_state.enhanced_topics = []
-if 'generated_content' not not in st.session_state:
+if 'generated_content' not in st.session_state:
     st.session_state.generated_content = {}
 if 'content_structure' not in st.session_state:
     st.session_state.content_structure = []
