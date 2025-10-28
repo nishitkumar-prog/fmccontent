@@ -87,7 +87,7 @@ def call_perplexity(query, system_prompt="Provide comprehensive, actionable insi
     }
     data = {
         # --- FIXED: Using valid online model (pplx-8b-online) ---
-        "model": "pplx-8b-online",  # ← CHANGED FROM sonar-small-32k-online
+        "model": "sonar",  # ← CHANGED FROM sonar-small-32k-online
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": query}
