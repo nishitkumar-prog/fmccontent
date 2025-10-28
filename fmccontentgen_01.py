@@ -119,7 +119,7 @@ def call_grok(messages, max_tokens=4000, temperature=0.7):
     }
     payload = {
         "messages": messages,
-        "model": "llama3-8b-8192",  # Using a known Grok model
+        "model": "grok-3",  # Using a known Grok model
         "stream": False,
         "temperature": temperature,
         "max_tokens": max_tokens
