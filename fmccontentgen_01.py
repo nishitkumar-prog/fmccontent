@@ -92,7 +92,7 @@ def call_perplexity(query, system_prompt="Provide comprehensive, actionable insi
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": query}
         ],
-        "max_tokens": 500
+        "max_tokens": 2000
     }
     try:
         response = requests.post(
