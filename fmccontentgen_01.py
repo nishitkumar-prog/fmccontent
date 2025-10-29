@@ -82,17 +82,14 @@ def call_perplexity(query, system_prompt="Provide comprehensive, actionable insi
         return {"error": "Missing Perplexity API key"}
     headers = {
         "Authorization": f"Bearer {perplexity_key}",
-        "Content-Type": "application/json",
-        "Accept": "application/json"
+        "Content-Type": "application/json"
     }
     data = {
-        # --- FIXED: Using valid online model (pplx-8b-online) ---
-        "model": "sonar",  # ← CHANGED FROM sonar-small-32k-online
+        "model": "sonar",  # This is correct
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": query}
-        ],
-        "max_tokens": 2000
+        ]
     }
     try:
         response = requests.post(
@@ -108,7 +105,7 @@ def call_perplexity(query, system_prompt="Provide comprehensive, actionable insi
         return {"error": f"Perplexity API error: {http_err} - {response.text}"}
     except Exception as e:
         return {"error": f"Perplexity API error: {e}"}
-
+        
 def call_grok(messages, max_tokens=4000, temperature=0.7):
     """Call Grok API for content generation"""
     if not grok_key:
