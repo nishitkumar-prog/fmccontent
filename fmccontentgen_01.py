@@ -496,9 +496,15 @@ with tab1:
         
         # Select all
         filtered_ids = {f"q_{queries.index(q)}" for q in filtered}
-        all_selected = all(qid in st.session_state.selected_queries for qid in filtered_ids)
-        if st.checkbox("Select All Visible", value=all_selected):
+        all_selected = all(qid in st.session_state.selected_queries for qid in filtered_ids) if filtered_ids else False
+        
+        select_all = st.checkbox("Select All Visible", value=all_selected, key="select_all_checkbox")
+        if select_all and not all_selected:
             st.session_state.selected_queries.update(filtered_ids)
+            st.rerun()
+        elif not select_all and all_selected:
+            st.session_state.selected_queries.difference_update(filtered_ids)
+            st.rerun()
         
         st.write(f"Showing {len(filtered)} of {len(queries)} queries")
         
@@ -507,15 +513,18 @@ with tab1:
             with st.container(border=True):
                 col1, col2 = st.columns([4, 1])
                 with col1:
+                    is_selected = qid in st.session_state.selected_queries
                     selected = st.checkbox(
                         f"**{q['query']}**",
-                        value=qid in st.session_state.selected_queries,
+                        value=is_selected,
                         key=f"cb_{qid}"
                     )
-                    if selected:
-                        st.session_state.selected_queries.add(qid)
-                    else:
-                        st.session_state.selected_queries.discard(qid)
+                    if selected != is_selected:
+                        if selected:
+                            st.session_state.selected_queries.add(qid)
+                        else:
+                            st.session_state.selected_queries.discard(qid)
+                        st.rerun()
                     st.caption(f"{q['category']} | Priority: {q.get('priority', 'medium')} | {q.get('purpose', '')}")
                 with col2:
                     if qid in st.session_state.research_results:
