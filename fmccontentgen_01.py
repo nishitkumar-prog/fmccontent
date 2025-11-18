@@ -139,35 +139,50 @@ RESEARCH:
 {research_summary}
 {tables_context}
 
-CRITICAL - AVOID REPETITION:
-Each heading must cover UNIQUE aspect. NO overlap between sections.
+HEADING RULES:
+1. Direct, factual headings - NO questions, NO suffixes
+2. Simple format: "[Topic] [Year if date-related]"
+3. NO: "Which is for You?", "Everything You Need to Know", "Complete Guide"
+4. YES: "CMA vs CPA", "CMA Eligibility 2025", "CMA Exam Pattern"
 
-Example BAD (repetitive):
-- What is CMA? 
-- CMA Overview
-- About CMA Certification
+AVOID REPETITION - Each heading = unique topic only.
 
-Example GOOD (unique):
-- CMA 2025 Exam Dates & Schedule
+Good heading examples:
+- CMA 2025 Exam Dates
 - CMA Eligibility Criteria
-- CMA Exam Pattern & Syllabus
+- CMA Exam Pattern
+- CMA Fees Structure
+- CMA vs CPA Comparison
 - CMA Application Process
+- CMA Syllabus Overview
+- CMA Career Opportunities
+- CMA Salary in India
 
-CREATE 8-10 UNIQUE HEADINGS:
-- First heading: Overview with latest dates/news
-- Each heading = one specific topic only
-- Topics: dates, eligibility, fees, process, syllabus, exam pattern, results, career, salary, comparison
-- Use year (2025/2026) in date-related headings
-- Be specific, not general
+Bad heading examples:
+- CMA vs CPA: Which is Best for You?
+- Everything About CMA Eligibility
+- Complete Guide to CMA Fees
+- How to Apply for CMA?
+
+CREATE 8-10 UNIQUE HEADINGS covering:
+- Current exam dates/schedule (with year)
+- Eligibility requirements
+- Exam pattern/structure
+- Fees and costs
+- Application/registration process
+- Syllabus topics
+- Comparison with other certifications
+- Career prospects/salary
+- Results and pass percentage
 
 Return ONLY valid JSON:
 {{
-  "article_title": "Simple H1 with {focus_keyword} and year",
-  "meta_description": "150-160 chars with key facts for students",
+  "article_title": "{focus_keyword}: [Simple subtitle]",
+  "meta_description": "150-160 chars with key facts",
   "headings": [
     {{
-      "h2_title": "Specific heading (not generic)",
-      "student_question": "What unique info this provides",
+      "h2_title": "Direct heading without suffix",
+      "student_question": "What info this provides",
       "key_facts": ["fact 1", "fact 2", "fact 3"],
       "needs_table": true/false,
       "table_purpose": "what comparison/data"
@@ -245,41 +260,27 @@ COUNTRY: {target_country}
 KEY FACTS: {', '.join(heading.get('key_facts', []))}
 RESEARCH: {research_context[:1500]}
 
-CRITICAL: Write ONLY about what the heading asks. Nothing else.
+CRITICAL RULES:
+1. DO NOT repeat the heading "{heading['h2_title']}" in your output
+2. Start directly with content
+3. Write ONLY about what the heading asks
+4. 80-120 words
+5. SHORT sentences (max 12-15 words)
+6. Use bullets only for actual lists
+7. No fluff, no promotional language
 
 Example - if heading is "CMA Eligibility":
-DON'T write: "Becoming a CMA is prestigious. IMA defines CMA as..."
-DO write: "CMA Foundation requires Class 12 pass. Intermediate needs graduation or Foundation pass..."
+❌ WRONG: "CMA Eligibility\nCMA Foundation requires..."
+❌ WRONG: "Eligibility for CMA\nTo become eligible..."
+✅ CORRECT: "CMA Foundation requires Class 12 pass..."
 
-Rules:
-- 80-120 words
-- SHORT sentences (max 12-15 words)
-- Focus ONLY on the heading topic
-- No introductory context about what CMA is
-- No promotional language
-- State requirements, process, or facts directly
-- Use bullets only for actual lists (documents, options, steps)
+Start writing content immediately without repeating heading.
 
-If heading is "Eligibility", write about:
-- Educational requirements for each level
-- Age requirements (if any)
-- Professional qualifications accepted
-- Work experience needed
+If heading asks about eligibility, write ONLY eligibility requirements.
+If heading asks about fees, write ONLY fee amounts and structure.
+If heading asks about exam pattern, write ONLY pattern details.
 
-If heading is "Exam Pattern", write about:
-- Number of papers
-- Question types
-- Marks distribution
-- Duration
-
-If heading is "Fees", write about:
-- Registration fee
-- Exam fee per level
-- Additional charges
-
-Stay strictly on topic. Be factual. No fluff.
-
-Write content now."""
+Write content now. No heading repetition."""
     
     messages = [{"role": "user", "content": prompt}]
     max_tokens = 900 if is_first_section else 500
