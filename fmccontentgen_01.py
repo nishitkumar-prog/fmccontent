@@ -530,6 +530,12 @@ with tab1:
         
         st.write(f"Showing {len(filtered)} of {len(queries)} queries")
         
+        # Debug info
+        with st.expander("🐛 Debug Info"):
+            st.write(f"Total selected queries: {len(st.session_state.selected_queries)}")
+            st.write(f"Selected IDs: {list(st.session_state.selected_queries)[:10]}")
+            st.write(f"Filtered IDs: {list(filtered_ids)[:10]}")
+        
         for q in filtered:
             qid = f"q_{queries.index(q)}"
             with st.container(border=True):
@@ -583,31 +589,38 @@ with tab1:
             with col3:
                 st.metric("To Research", len(unreserached))
             
-            if unreserached:
-                if st.button(f"🔍 Research {len(unreserached)} Selected Queries", type="secondary", use_container_width=True):
+            if len(unreserached) > 0:
+                if st.button(f"🔍 Research {len(unreserached)} Selected Queries", type="secondary", use_container_width=True, key="bulk_research_btn"):
                     progress = st.progress(0)
                     status = st.empty()
                     success_count = 0
                     error_count = 0
                     
                     for idx, qid in enumerate(unreserached):
-                        q_idx = int(qid.split('_')[1])
-                        q = queries[q_idx]
-                        status.text(f"Researching ({idx+1}/{len(unreserached)}): {q['query'][:60]}...")
-                        
-                        # Research individually to avoid token limits
-                        res = call_perplexity(q['query'])
-                        
-                        if 'choices' in res and res['choices']:
-                            st.session_state.research_results[qid] = {
-                                'query': q['query'],
-                                'category': q.get('category', 'Unknown'),
-                                'result': res['choices'][0]['message']['content']
-                            }
-                            success_count += 1
-                        else:
+                        try:
+                            q_idx = int(qid.split('_')[1])
+                            q = queries[q_idx]
+                            status.text(f"Researching ({idx+1}/{len(unreserached)}): {q['query'][:60]}...")
+                            
+                            # Research individually to avoid token limits
+                            res = call_perplexity(q['query'])
+                            
+                            if 'choices' in res and res['choices']:
+                                st.session_state.research_results[qid] = {
+                                    'query': q['query'],
+                                    'category': q.get('category', 'Unknown'),
+                                    'result': res['choices'][0]['message']['content']
+                                }
+                                success_count += 1
+                            else:
+                                error_count += 1
+                                error_msg = res.get('error', 'Unknown error')
+                                status.warning(f"Failed: {q['query'][:50]} - {error_msg}")
+                                time.sleep(1)
+                        except Exception as e:
                             error_count += 1
-                            st.warning(f"Failed: {q['query'][:50]} - {res.get('error', 'Unknown error')}")
+                            status.warning(f"Exception: {str(e)}")
+                            time.sleep(1)
                         
                         # Rate limiting - wait 2 seconds between requests
                         if idx < len(unreserached) - 1:
@@ -619,7 +632,7 @@ with tab1:
                     time.sleep(2)
                     st.rerun()
             else:
-                st.info("All selected queries already researched!")
+                st.info("✅ All selected queries already researched!")
 
 with tab2:
     st.header("Step 2: Upload Keywords (Optional but Recommended)")
