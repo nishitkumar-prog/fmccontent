@@ -215,42 +215,36 @@ RESEARCH: {research_context[:2500]}
 
 STRUCTURE:
 
-PART 1 - Latest Updates (if available):
+PART 1 - Latest Updates (ONLY if updates available):
 **Latest About {focus_keyword}:**
-- First update/announcement
-- Second update/date
-- Third update/change (if available)
+Write 2-3 short sentences with key dates/announcements. NO bullet points here.
 
-PART 2 - Definition & Summary:
-Write 180-220 words using SHORT SENTENCES (max 12-15 words each).
+Example: "ICMAI announced December 2025 exam dates. Foundation exam scheduled for December 13, 2025. Admit cards release in early December 2025."
 
-CRITICAL SENTENCE RULES:
-- Break long sentences into 2-3 shorter ones
-- One idea per sentence
-- Use periods frequently
-- No complex clauses
+PART 2 - Definition & Summary (180-220 words):
+Write in SHORT SENTENCES (max 12-15 words each). Use PROSE format - flowing paragraphs.
 
-CONTENT STRUCTURE:
-1. Opening definition (1-2 sentences, what it is)
-2. Who offers/conducts it (1 sentence)
-3. Core purpose (2-3 short sentences)
-4. Key components (use bullet points if 3+ items)
-5. Target audience (1-2 sentences)
-6. Basic requirements (use bullet points)
-7. Why it matters (1-2 sentences)
+DO NOT use bullet points in this section. Write natural paragraphs.
 
-Use bullet points for:
-- Lists of 3+ items
-- Key features
-- Requirements
-- Benefits
+Cover:
+1. Clear definition (what it is)
+2. Who offers it
+3. Core purpose and focus areas
+4. Main structure/components (mention in prose, not bullets)
+5. Target audience
+6. Basic requirements (mention in prose, not bullets)
+7. Why it matters
 
-Example SHORT sentence style:
-❌ BAD: "The CMA certification, globally recognized and offered by IMA in the United States, is a prestigious professional credential that signifies advanced expertise in management accounting and strategic financial management."
+Example style:
+"The CMA stands for Certified Management Accountant. It is a professional certification recognized globally. IMA in the United States offers this credential. ICMAI administers the program in India. The certification validates expertise in management accounting and financial strategy.
 
-✅ GOOD: "The CMA is a global professional certification. IMA in the United States offers this credential. It validates expertise in management accounting. Professionals gain skills in strategic financial management."
+The core purpose is building strategic financial skills. It focuses on financial planning and analysis. Cost management is a key area. Performance measurement is another focus. The certification also emphasizes business decision support.
 
-Write content now. Use markdown bullets (- ) for lists."""
+The CMA consists of a two-part examination. It covers 12 core competencies across both parts. Topics include budgeting, forecasting, and internal controls. Ethics and professional standards are integral components.
+
+The certification targets finance professionals seeking leadership roles. It suits those in accounting, financial planning, and business analysis. Requirements include a bachelor's degree and two years of work experience. Candidates must pass both exam parts and maintain IMA membership."
+
+Write content now. Short sentences. NO bullets in first section."""
     else:
         prompt = f"""Write content for: "{heading['h2_title']}"
 
@@ -259,30 +253,33 @@ COUNTRY: {target_country}
 KEY ASPECTS: {', '.join(heading.get('key_facts', []))}
 RESEARCH: {research_context[:1500]}
 
-CRITICAL RULES:
-1. SHORT SENTENCES ONLY (max 12-15 words)
-2. One idea per sentence
-3. Use bullet points for any list of 3+ items
-4. NO repetition of info from previous sections
-5. 80-120 words total
+WRITE 80-120 words using SHORT SENTENCES (max 12-15 words).
 
-USE BULLETS FOR:
-- Lists (steps, requirements, documents, etc.)
-- Multiple items or options
-- Key points or features
-- Any enumeration
+BULLET POINT RULES - Use ONLY when:
+- Listing specific items (documents, fees, dates, steps in a process)
+- 3 or more similar items that are better as a list
+- Comparison of distinct options
 
-Example structure for "Eligibility":
-"CMA Foundation requires Class 12 completion. Students need a recognized board certificate. Enrollment possible after Class 10. However, exams allowed only after Class 12 results.
+DO NOT use bullets for:
+- General descriptions
+- Flowing explanations
+- 1-2 items
 
-CMA Intermediate eligibility includes:
-- Foundation course completion, OR
-- Graduation degree (except fine arts), OR
-- Professional qualifications (CA Inter, CS Foundation)
+Most content should be PROSE. Bullets are occasional, not default.
 
-CMA Final requires both Intermediate groups cleared. Minimum 40% needed in each paper."
+Example for "Eligibility":
+"CMA Foundation requires Class 12 completion from a recognized board. Students can enroll after Class 10. However, they cannot appear for exams until Class 12 results are out.
 
-Write content now. Short sentences. Use markdown bullets (- ) for lists."""
+CMA Intermediate has multiple pathways. Candidates can enter after passing Foundation. Graduates can also apply directly, except fine arts degrees. Professional qualifications like CA Inter or CS Foundation are accepted.
+
+Required documents include:
+- Class 12 mark sheet
+- Graduation certificate (for direct entry)
+- Identity proof (Aadhar/PAN)
+
+CMA Final requires clearing both Intermediate groups. Candidates need minimum 40% in each paper."
+
+Write content now. Prose first, bullets only when necessary."""
     
     messages = [{"role": "user", "content": prompt}]
     max_tokens = 900 if is_first_section else 500
