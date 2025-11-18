@@ -410,7 +410,7 @@ with tab1:
                 else:
                     st.error(error)
     
-    if st.session_state.fanout_results:
+    if st.session_state.fanout_results and 'queries' in st.session_state.fanout_results:
         st.markdown("---")
         queries = st.session_state.fanout_results['queries']
         st.subheader(f"Research Queries ({len(queries)})")
