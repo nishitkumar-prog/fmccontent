@@ -169,30 +169,66 @@ Return ONLY valid JSON:
     except Exception as e:
         return None, str(e)
 
-def generate_section_content(heading, focus_keyword, target_country, research_context):
+def get_latest_alerts(focus_keyword, target_country):
+    """Get latest news/updates/alerts for the topic"""
+    if not perplexity_key:
+        return ""
+    
+    current_date = datetime.now().strftime("%B %Y")
+    query = f"Latest news, updates, deadlines, or important announcements about {focus_keyword} in {target_country} in {current_date}. Include exam dates, fee changes, new regulations, or recent updates."
+    
+    system_prompt = "Provide only the most recent and factual updates from 2024-2025. Include specific dates and changes. Be direct and concise."
+    
+    res = call_perplexity(query, system_prompt=system_prompt)
+    if res and 'choices' in res and len(res['choices']) > 0:
+        return res['choices'][0]['message'].get('content', '')[:500]
+    return ""
+
+def generate_section_content(heading, focus_keyword, target_country, research_context, is_first_section=False, latest_alerts=""):
     if not grok_key:
         return None, "Grok required"
     
-    prompt = f"""Write for: "{heading['h2_title']}"
+    if is_first_section:
+        alerts_context = f"\n\nLATEST ALERTS/NEWS:\n{latest_alerts}" if latest_alerts else ""
+        
+        prompt = f"""Write opening section for: "{heading['h2_title']}"
 
 KEYWORD: {focus_keyword}
 AUDIENCE: Students in {target_country}
-FACTS NEEDED: {', '.join(heading.get('key_facts', []))}
-RESEARCH: {research_context[:2000]}
+RESEARCH: {research_context[:2500]}
+{alerts_context}
 
-WRITE IN:
+WRITE ONE PARAGRAPH (250-300 words):
+- Start with most recent/important update or news
+- Summarize the entire topic briefly
+- Include latest deadlines, dates, changes from 2024-2025
+- Use active voice, simple sentences
+- Include specific numbers and dates
+- No fluff, direct facts only
+- Make it immediately relevant to students
+
+Write single paragraph. Plain text."""
+    else:
+        prompt = f"""Write for: "{heading['h2_title']}"
+
+KEYWORD: {focus_keyword}
+AUDIENCE: Students in {target_country}
+FACTS: {', '.join(heading.get('key_facts', []))}
+RESEARCH: {research_context[:1500]}
+
+WRITE ONE PARAGRAPH (100-150 words):
 - Active voice only
 - Simple sentences (max 15 words)
 - Direct facts with numbers and dates
 - No introductory phrases
-- No repetition
-- No fluff words (comprehensive, leverage, utilize, etc.)
 - Start with the main fact
+- Table follows this paragraph
 
-Write 150-200 words. Plain text."""
+Write single paragraph. Plain text."""
     
     messages = [{"role": "user", "content": prompt}]
-    content, error = call_grok(messages, max_tokens=800, temperature=0.6)
+    max_tokens = 1000 if is_first_section else 600
+    content, error = call_grok(messages, max_tokens=max_tokens, temperature=0.6)
     return content, error
 
 def generate_data_table(heading, target_country, research_context):
@@ -599,10 +635,24 @@ with tab5:
             
             st.session_state.generated_sections = []
             
+            # Get latest alerts for first section
+            status.text("Checking latest updates...")
+            latest_alerts = get_latest_alerts(st.session_state.focus_keyword, st.session_state.target_country)
+            
             for idx, heading in enumerate(outline['headings']):
                 status.text(f"Writing: {heading['h2_title'][:50]}...")
                 
-                content, _ = generate_section_content(heading, st.session_state.focus_keyword, st.session_state.target_country, research_context)
+                # First section gets special treatment - summary with news
+                is_first = (idx == 0)
+                content, _ = generate_section_content(
+                    heading, 
+                    st.session_state.focus_keyword, 
+                    st.session_state.target_country, 
+                    research_context,
+                    is_first_section=is_first,
+                    latest_alerts=latest_alerts if is_first else ""
+                )
+                
                 table, _ = generate_data_table(heading, st.session_state.target_country, research_context) if heading.get('needs_table') else (None, None)
                 
                 st.session_state.generated_sections.append({'heading': heading, 'content': content, 'table': table})
