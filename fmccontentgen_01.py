@@ -578,6 +578,7 @@ with tab1:
         
         if st.session_state.selected_queries and perplexity_key:
             st.markdown("---")
+            st.subheader("Bulk Research")
             selected_count = len(st.session_state.selected_queries)
             unreserached = [qid for qid in st.session_state.selected_queries if qid not in st.session_state.research_results]
             
@@ -591,8 +592,8 @@ with tab1:
             
             if len(unreserached) > 0:
                 if st.button(f"🔍 Research {len(unreserached)} Selected Queries", type="secondary", use_container_width=True, key="bulk_research_btn"):
-                    progress = st.progress(0)
-                    status = st.empty()
+                    progress_bar = st.progress(0)
+                    status_placeholder = st.empty()
                     success_count = 0
                     error_count = 0
                     
@@ -600,39 +601,45 @@ with tab1:
                         try:
                             q_idx = int(qid.split('_')[1])
                             q = queries[q_idx]
-                            status.text(f"Researching ({idx+1}/{len(unreserached)}): {q['query'][:60]}...")
+                            status_placeholder.info(f"🔍 Researching ({idx+1}/{len(unreserached)}): **{q['query'][:60]}**...")
                             
                             # Research individually to avoid token limits
                             res = call_perplexity(q['query'])
                             
-                            if 'choices' in res and res['choices']:
-                                st.session_state.research_results[qid] = {
-                                    'query': q['query'],
-                                    'category': q.get('category', 'Unknown'),
-                                    'result': res['choices'][0]['message']['content']
-                                }
-                                success_count += 1
+                            if res and 'choices' in res and len(res['choices']) > 0:
+                                content = res['choices'][0]['message'].get('content', '')
+                                if content:
+                                    st.session_state.research_results[qid] = {
+                                        'query': q['query'],
+                                        'category': q.get('category', 'Unknown'),
+                                        'result': content
+                                    }
+                                    success_count += 1
+                                    status_placeholder.success(f"✅ Completed: {q['query'][:50]}")
+                                else:
+                                    error_count += 1
+                                    status_placeholder.error(f"❌ Empty response for: {q['query'][:50]}")
                             else:
                                 error_count += 1
-                                error_msg = res.get('error', 'Unknown error')
-                                status.warning(f"Failed: {q['query'][:50]} - {error_msg}")
-                                time.sleep(1)
+                                error_msg = res.get('error', 'Invalid response') if res else 'No response'
+                                status_placeholder.error(f"❌ Failed: {q['query'][:50]} - {error_msg}")
+                                
                         except Exception as e:
                             error_count += 1
-                            status.warning(f"Exception: {str(e)}")
-                            time.sleep(1)
+                            status_placeholder.error(f"❌ Exception on {qid}: {str(e)}")
+                        
+                        # Update progress
+                        progress_bar.progress((idx + 1) / len(unreserached))
                         
                         # Rate limiting - wait 2 seconds between requests
                         if idx < len(unreserached) - 1:
                             time.sleep(2)
-                        
-                        progress.progress((idx + 1) / len(unreserached))
                     
-                    status.success(f"✅ Research complete! Success: {success_count}, Errors: {error_count}")
+                    status_placeholder.success(f"🎉 Complete! ✅ Success: {success_count} | ❌ Errors: {error_count}")
                     time.sleep(2)
                     st.rerun()
             else:
-                st.info("✅ All selected queries already researched!")
+                st.success("✅ All selected queries already researched!")
 
 with tab2:
     st.header("Step 2: Upload Keywords (Optional but Recommended)")
