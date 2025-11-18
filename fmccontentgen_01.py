@@ -213,37 +213,44 @@ COUNTRY: {target_country}
 RESEARCH: {research_context[:2500]}
 {alerts_context}
 
-STRUCTURE (TWO PARTS):
+STRUCTURE:
 
 PART 1 - Latest Updates (if available):
 **Latest About {focus_keyword}:**
-[2-3 sentences with most recent/important updates, dates, announcements]
+- First update/announcement
+- Second update/date
+- Third update/change (if available)
 
-PART 2 - Definition & Summary (main paragraph):
-[Core definition and comprehensive summary in 180-220 words]
-- What it is (clear definition)
-- Who offers/conducts it
-- Key purpose/benefits
-- Main components/structure
-- Who it's for
-- Essential requirements/eligibility overview
-- Why it matters
+PART 2 - Definition & Summary:
+Write 180-220 words using SHORT SENTENCES (max 12-15 words each).
 
-WRITING STYLE:
-- Professional, encyclopedic tone
-- Present tense, active voice
-- No addressing reader
-- Facts and context, not promotional
-- Natural flow, not listy
-- Include {target_country} context where relevant
+CRITICAL SENTENCE RULES:
+- Break long sentences into 2-3 shorter ones
+- One idea per sentence
+- Use periods frequently
+- No complex clauses
 
-Example structure:
-**Latest About CMA:**
-ICMAI released December 2025 exam schedule. Foundation exam scheduled for Dec 13, 2025. Admit cards available early December.
+CONTENT STRUCTURE:
+1. Opening definition (1-2 sentences, what it is)
+2. Who offers/conducts it (1 sentence)
+3. Core purpose (2-3 short sentences)
+4. Key components (use bullet points if 3+ items)
+5. Target audience (1-2 sentences)
+6. Basic requirements (use bullet points)
+7. Why it matters (1-2 sentences)
 
-The Certified Management Accountant (CMA) certification is a professional credential offered by the Institute of Cost Accountants of India (ICMAI) that validates expertise in management accounting and financial management. The certification focuses on cost accounting, financial planning, analysis, control, and decision support...
+Use bullet points for:
+- Lists of 3+ items
+- Key features
+- Requirements
+- Benefits
 
-Write both parts now. Plain text with bold markdown for "Latest About" heading."""
+Example SHORT sentence style:
+❌ BAD: "The CMA certification, globally recognized and offered by IMA in the United States, is a prestigious professional credential that signifies advanced expertise in management accounting and strategic financial management."
+
+✅ GOOD: "The CMA is a global professional certification. IMA in the United States offers this credential. It validates expertise in management accounting. Professionals gain skills in strategic financial management."
+
+Write content now. Use markdown bullets (- ) for lists."""
     else:
         prompt = f"""Write content for: "{heading['h2_title']}"
 
@@ -252,24 +259,30 @@ COUNTRY: {target_country}
 KEY ASPECTS: {', '.join(heading.get('key_facts', []))}
 RESEARCH: {research_context[:1500]}
 
-CRITICAL - AVOID REPETITION:
-- Check if this information was already covered in previous sections
-- Write ONLY unique information specific to this heading
-- If this is about dates/eligibility/fees, provide specific details not mentioned before
-- Don't repeat definitions or general overview
+CRITICAL RULES:
+1. SHORT SENTENCES ONLY (max 12-15 words)
+2. One idea per sentence
+3. Use bullet points for any list of 3+ items
+4. NO repetition of info from previous sections
+5. 80-120 words total
 
-WRITE FOCUSED PARAGRAPH (80-120 words):
-- Direct, factual statements
-- Active voice, present tense
-- Specific data (dates, amounts, numbers, requirements)
-- Professional tone, not conversational
-- No addressing reader
-- No filler phrases or transitions
+USE BULLETS FOR:
+- Lists (steps, requirements, documents, etc.)
+- Multiple items or options
+- Key points or features
+- Any enumeration
 
-Example for "Eligibility":
-"CMA Foundation requires Class 12 completion from recognized board. Students can enroll after Class 10 but cannot appear for exams until Class 12 results. CMA Intermediate requires Foundation pass or graduation degree (except fine arts). Direct entry available for graduates. CMA Final needs both Intermediate groups cleared with minimum 40% in each paper."
+Example structure for "Eligibility":
+"CMA Foundation requires Class 12 completion. Students need a recognized board certificate. Enrollment possible after Class 10. However, exams allowed only after Class 12 results.
 
-Write paragraph now. Plain text only."""
+CMA Intermediate eligibility includes:
+- Foundation course completion, OR
+- Graduation degree (except fine arts), OR
+- Professional qualifications (CA Inter, CS Foundation)
+
+CMA Final requires both Intermediate groups cleared. Minimum 40% needed in each paper."
+
+Write content now. Short sentences. Use markdown bullets (- ) for lists."""
     
     messages = [{"role": "user", "content": prompt}]
     max_tokens = 900 if is_first_section else 500
@@ -355,24 +368,43 @@ def export_to_html(article_title, meta_description, sections, faqs):
         if section.get('content'):
             content = section['content']
             
-            # Handle **bold** markdown for "Latest About" section
-            if '**' in content:
-                # Split by paragraphs first
-                paragraphs = content.split('\n\n')
-                for para in paragraphs:
-                    para = para.strip()
-                    if para:
-                        # Convert **text** to <strong>text</strong>
-                        import re
-                        para = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', para)
-                        html.append(f'<p>{para}</p>')
-            else:
-                # Normal paragraph handling
-                paragraphs = content.split('\n\n')
-                for para in paragraphs:
-                    para = para.strip()
-                    if para and not para.startswith('#'):
-                        html.append(f'<p>{para}</p>')
+            # Process content with bold and bullets
+            import re
+            
+            # Split into blocks (paragraphs and bullet lists)
+            blocks = content.split('\n\n')
+            
+            for block in blocks:
+                block = block.strip()
+                if not block:
+                    continue
+                
+                # Check if block contains bullet points
+                lines = block.split('\n')
+                
+                # If multiple lines start with "- ", it's a bullet list
+                bullet_count = sum(1 for line in lines if line.strip().startswith('- '))
+                
+                if bullet_count >= 2:  # It's a list
+                    html.append('<ul>')
+                    for line in lines:
+                        line = line.strip()
+                        if line.startswith('- '):
+                            # Remove "- " and handle bold
+                            item = line[2:].strip()
+                            item = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', item)
+                            html.append(f' <li>{item}</li>')
+                        elif line and not line.startswith('- '):
+                            # Text before list - output as paragraph
+                            html.append('</ul>')
+                            line = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', line)
+                            html.append(f'<p>{line}</p>')
+                            html.append('<ul>')
+                    html.append('</ul>')
+                else:
+                    # Regular paragraph - handle bold
+                    para = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', block)
+                    html.append(f'<p>{para}</p>')
         
         if section.get('table'):
             table = section['table']
@@ -402,7 +434,27 @@ def export_to_html(article_title, meta_description, sections, faqs):
         html.append('<h2>FAQs</h2>')
         for faq in faqs:
             html.append(f'<h3>{faq["question"]}</h3>')
-            html.append(f'<p>{faq["answer"]}</p>')
+            # Handle bullets in FAQ answers too
+            import re
+            answer = faq["answer"]
+            if '\n- ' in answer:
+                lines = answer.split('\n')
+                for line in lines:
+                    line = line.strip()
+                    if line.startswith('- '):
+                        if '<ul>' not in html[-1] if html else False:
+                            html.append('<ul>')
+                        item = line[2:].strip()
+                        html.append(f' <li>{item}</li>')
+                    else:
+                        if html and '<ul>' in html[-1]:
+                            html.append('</ul>')
+                        if line:
+                            html.append(f'<p>{line}</p>')
+                if html and '<ul>' in html[-1]:
+                    html.append('</ul>')
+            else:
+                html.append(f'<p>{answer}</p>')
         html.append('')
     
     return '\n'.join(html)
