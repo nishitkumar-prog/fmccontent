@@ -65,8 +65,8 @@ else:
     model = None
 
 # Utility Functions
-def call_perplexity(query, system_prompt=None):
-    """Enhanced Perplexity call with content-optimized prompts"""
+def call_perplexity(query, system_prompt=None, max_retries=2):
+    """Enhanced Perplexity call with content-optimized prompts and retry logic"""
     if not perplexity_key:
         return {"error": "Missing Perplexity API key"}
     
@@ -91,17 +91,39 @@ def call_perplexity(query, system_prompt=None):
             {"role": "user", "content": query}
         ]
     }
-    try:
-        response = requests.post(
-            "https://api.perplexity.ai/chat/completions",
-            headers=headers,
-            json=data,
-            timeout=30
-        )
-        response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        return {"error": f"Perplexity error: {e}"}
+    
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(
+                "https://api.perplexity.ai/chat/completions",
+                headers=headers,
+                json=data,
+                timeout=45
+            )
+            response.raise_for_status()
+            result = response.json()
+            
+            # Validate response has expected structure
+            if 'choices' in result and len(result['choices']) > 0:
+                return result
+            else:
+                return {"error": f"Invalid response structure: {result}"}
+                
+        except requests.exceptions.Timeout:
+            if attempt < max_retries - 1:
+                time.sleep(2)
+                continue
+            return {"error": "Request timeout - query too complex"}
+        except requests.exceptions.HTTPError as e:
+            error_text = response.text if 'response' in locals() else str(e)
+            return {"error": f"HTTP {response.status_code}: {error_text}"}
+        except Exception as e:
+            if attempt < max_retries - 1:
+                time.sleep(2)
+                continue
+            return {"error": f"Perplexity error: {str(e)}"}
+    
+    return {"error": "Max retries reached"}
 
 def call_grok(messages, max_tokens=4000, temperature=0.7):
     if not grok_key:
@@ -533,15 +555,18 @@ with tab1:
                         if st.button("Research", key=f"btn_{qid}"):
                             with st.spinner("Researching..."):
                                 res = call_perplexity(q['query'])
-                                if 'choices' in res:
+                                if 'choices' in res and res['choices']:
                                     st.session_state.research_results[qid] = {
                                         'query': q['query'],
                                         'category': q.get('category', 'Unknown'),
                                         'result': res['choices'][0]['message']['content']
                                     }
+                                    st.success("✓ Complete!")
+                                    time.sleep(1)
                                     st.rerun()
                                 else:
-                                    st.error(f"Error: {res.get('error')}")
+                                    error_msg = res.get('error', 'Unknown error')
+                                    st.error(f"❌ {error_msg}")
                     else:
                         st.caption("Need Key")
         
@@ -550,26 +575,51 @@ with tab1:
             selected_count = len(st.session_state.selected_queries)
             unreserached = [qid for qid in st.session_state.selected_queries if qid not in st.session_state.research_results]
             
-            if st.button(f"Research {len(unreserached)} Selected Queries", type="secondary", disabled=len(unreserached)==0):
-                progress = st.progress(0)
-                status = st.empty()
-                
-                for idx, qid in enumerate(unreserached):
-                    q_idx = int(qid.split('_')[1])
-                    q = queries[q_idx]
-                    status.text(f"Researching ({idx+1}/{len(unreserached)}): {q['query'][:60]}...")
-                    res = call_perplexity(q['query'])
-                    if 'choices' in res:
-                        st.session_state.research_results[qid] = {
-                            'query': q['query'],
-                            'category': q.get('category', 'Unknown'),
-                            'result': res['choices'][0]['message']['content']
-                        }
-                    time.sleep(1)
-                    progress.progress((idx + 1) / len(unreserached))
-                status.success("✓ Research complete!")
-                time.sleep(1)
-                st.rerun()
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Selected", selected_count)
+            with col2:
+                st.metric("Already Researched", selected_count - len(unreserached))
+            with col3:
+                st.metric("To Research", len(unreserached))
+            
+            if unreserached:
+                if st.button(f"🔍 Research {len(unreserached)} Selected Queries", type="secondary", use_container_width=True):
+                    progress = st.progress(0)
+                    status = st.empty()
+                    success_count = 0
+                    error_count = 0
+                    
+                    for idx, qid in enumerate(unreserached):
+                        q_idx = int(qid.split('_')[1])
+                        q = queries[q_idx]
+                        status.text(f"Researching ({idx+1}/{len(unreserached)}): {q['query'][:60]}...")
+                        
+                        # Research individually to avoid token limits
+                        res = call_perplexity(q['query'])
+                        
+                        if 'choices' in res and res['choices']:
+                            st.session_state.research_results[qid] = {
+                                'query': q['query'],
+                                'category': q.get('category', 'Unknown'),
+                                'result': res['choices'][0]['message']['content']
+                            }
+                            success_count += 1
+                        else:
+                            error_count += 1
+                            st.warning(f"Failed: {q['query'][:50]} - {res.get('error', 'Unknown error')}")
+                        
+                        # Rate limiting - wait 2 seconds between requests
+                        if idx < len(unreserached) - 1:
+                            time.sleep(2)
+                        
+                        progress.progress((idx + 1) / len(unreserached))
+                    
+                    status.success(f"✅ Research complete! Success: {success_count}, Errors: {error_count}")
+                    time.sleep(2)
+                    st.rerun()
+            else:
+                st.info("All selected queries already researched!")
 
 with tab2:
     st.header("Step 2: Upload Keywords (Optional but Recommended)")
