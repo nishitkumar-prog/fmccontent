@@ -130,32 +130,47 @@ def generate_outline_from_research(focus_keyword, target_country, required_table
     
     tables_context = ""
     if required_tables:
-        tables_context = f"\n\nMANDATORY TABLES TO INCLUDE:\n" + "\n".join([f"- {t}" for t in required_tables])
+        tables_context = f"\n\nMANDATORY TABLES:\n" + "\n".join([f"- {t}" for t in required_tables])
     
     prompt = f"""Create article outline for: "{focus_keyword}"
 
-AUDIENCE: Students in {target_country}
+TARGET: Students in {target_country}
 RESEARCH:
 {research_summary}
 {tables_context}
 
-Create 8-10 H2 headings that:
-- Answer student questions directly
-- Use simple, active voice
-- Focus on practical information
-- Include mandatory tables where specified
+CRITICAL - AVOID REPETITION:
+Each heading must cover UNIQUE aspect. NO overlap between sections.
+
+Example BAD (repetitive):
+- What is CMA? 
+- CMA Overview
+- About CMA Certification
+
+Example GOOD (unique):
+- CMA 2025 Exam Dates & Schedule
+- CMA Eligibility Criteria
+- CMA Exam Pattern & Syllabus
+- CMA Application Process
+
+CREATE 8-10 UNIQUE HEADINGS:
+- First heading: Overview with latest dates/news
+- Each heading = one specific topic only
+- Topics: dates, eligibility, fees, process, syllabus, exam pattern, results, career, salary, comparison
+- Use year (2025/2026) in date-related headings
+- Be specific, not general
 
 Return ONLY valid JSON:
 {{
-  "article_title": "Simple H1 with focus keyword",
-  "meta_description": "150-160 chars for students",
+  "article_title": "Simple H1 with {focus_keyword} and year",
+  "meta_description": "150-160 chars with key facts for students",
   "headings": [
     {{
-      "h2_title": "Direct heading",
-      "student_question": "What students want to know",
+      "h2_title": "Specific heading (not generic)",
+      "student_question": "What unique info this provides",
       "key_facts": ["fact 1", "fact 2", "fact 3"],
       "needs_table": true/false,
-      "table_purpose": "what data to show"
+      "table_purpose": "what comparison/data"
     }}
   ]
 }}"""
@@ -189,46 +204,76 @@ def generate_section_content(heading, focus_keyword, target_country, research_co
         return None, "Grok required"
     
     if is_first_section:
-        alerts_context = f"\n\nLATEST ALERTS/NEWS:\n{latest_alerts}" if latest_alerts else ""
+        alerts_context = f"\n\nLATEST UPDATES:\n{latest_alerts}" if latest_alerts else ""
         
-        prompt = f"""Write opening section for: "{heading['h2_title']}"
+        prompt = f"""Write opening content for: "{heading['h2_title']}"
 
-KEYWORD: {focus_keyword}
-AUDIENCE: Students in {target_country}
+TOPIC: {focus_keyword}
+COUNTRY: {target_country}
 RESEARCH: {research_context[:2500]}
 {alerts_context}
 
-WRITE ONE PARAGRAPH (250-300 words):
-- Start with most recent/important update or news
-- Summarize the entire topic briefly
-- Include latest deadlines, dates, changes from 2024-2025
-- Use active voice, simple sentences
-- Include specific numbers and dates
-- No fluff, direct facts only
-- Make it immediately relevant to students
+STRUCTURE (TWO PARTS):
 
-Write single paragraph. Plain text."""
+PART 1 - Latest Updates (if available):
+**Latest About {focus_keyword}:**
+[2-3 sentences with most recent/important updates, dates, announcements]
+
+PART 2 - Definition & Summary (main paragraph):
+[Core definition and comprehensive summary in 180-220 words]
+- What it is (clear definition)
+- Who offers/conducts it
+- Key purpose/benefits
+- Main components/structure
+- Who it's for
+- Essential requirements/eligibility overview
+- Why it matters
+
+WRITING STYLE:
+- Professional, encyclopedic tone
+- Present tense, active voice
+- No addressing reader
+- Facts and context, not promotional
+- Natural flow, not listy
+- Include {target_country} context where relevant
+
+Example structure:
+**Latest About CMA:**
+ICMAI released December 2025 exam schedule. Foundation exam scheduled for Dec 13, 2025. Admit cards available early December.
+
+The Certified Management Accountant (CMA) certification is a professional credential offered by the Institute of Cost Accountants of India (ICMAI) that validates expertise in management accounting and financial management. The certification focuses on cost accounting, financial planning, analysis, control, and decision support...
+
+Write both parts now. Plain text with bold markdown for "Latest About" heading."""
     else:
-        prompt = f"""Write for: "{heading['h2_title']}"
+        prompt = f"""Write content for: "{heading['h2_title']}"
 
-KEYWORD: {focus_keyword}
-AUDIENCE: Students in {target_country}
-FACTS: {', '.join(heading.get('key_facts', []))}
+TOPIC: {focus_keyword}
+COUNTRY: {target_country}
+KEY ASPECTS: {', '.join(heading.get('key_facts', []))}
 RESEARCH: {research_context[:1500]}
 
-WRITE ONE PARAGRAPH (100-150 words):
-- Active voice only
-- Simple sentences (max 15 words)
-- Direct facts with numbers and dates
-- No introductory phrases
-- Start with the main fact
-- Table follows this paragraph
+CRITICAL - AVOID REPETITION:
+- Check if this information was already covered in previous sections
+- Write ONLY unique information specific to this heading
+- If this is about dates/eligibility/fees, provide specific details not mentioned before
+- Don't repeat definitions or general overview
 
-Write single paragraph. Plain text."""
+WRITE FOCUSED PARAGRAPH (80-120 words):
+- Direct, factual statements
+- Active voice, present tense
+- Specific data (dates, amounts, numbers, requirements)
+- Professional tone, not conversational
+- No addressing reader
+- No filler phrases or transitions
+
+Example for "Eligibility":
+"CMA Foundation requires Class 12 completion from recognized board. Students can enroll after Class 10 but cannot appear for exams until Class 12 results. CMA Intermediate requires Foundation pass or graduation degree (except fine arts). Direct entry available for graduates. CMA Final needs both Intermediate groups cleared with minimum 40% in each paper."
+
+Write paragraph now. Plain text only."""
     
     messages = [{"role": "user", "content": prompt}]
-    max_tokens = 1000 if is_first_section else 600
-    content, error = call_grok(messages, max_tokens=max_tokens, temperature=0.6)
+    max_tokens = 900 if is_first_section else 500
+    content, error = call_grok(messages, max_tokens=max_tokens, temperature=0.5)
     return content, error
 
 def generate_data_table(heading, target_country, research_context):
@@ -241,24 +286,22 @@ PURPOSE: {heading.get('table_purpose', '')}
 COUNTRY: {target_country}
 RESEARCH: {research_context[:1500]}
 
-Create table with:
-- Dates (exam dates, deadlines, academic calendar)
-- Fees (in local currency)
-- Requirements (eligibility, documents, scores)
-- Duration (course length, study hours)
-- Comparisons (options, colleges, programs)
-
-Use REAL data only. 5-8 rows maximum.
+SHIKSHA.COM TABLE STYLE - Clean, professional, complete:
+- Only REAL data from research
+- Common formats: Exam dates, Fees, Eligibility, Pattern
+- Use {target_country} currency
+- Date format: DD MMM 'YY
+- 4-8 rows, 3-5 columns max
 
 Return ONLY valid JSON:
 {{
-  "table_title": "Simple title",
+  "table_title": "CMA [Topic] [Year]",
   "headers": ["Column1", "Column2", "Column3"],
   "rows": [["data", "data", "data"]]
 }}"""
     
     messages = [{"role": "user", "content": prompt}]
-    response, error = call_grok(messages, max_tokens=1000, temperature=0.5)
+    response, error = call_grok(messages, max_tokens=1000, temperature=0.4)
     if error:
         return None, error
     try:
@@ -310,11 +353,26 @@ def export_to_html(article_title, meta_description, sections, faqs):
         html.append(f'<h2>{section["heading"]["h2_title"]}</h2>')
         
         if section.get('content'):
-            paragraphs = section['content'].split('\n\n')
-            for para in paragraphs:
-                para = para.strip()
-                if para and not para.startswith('#'):
-                    html.append(f'<p>{para}</p>')
+            content = section['content']
+            
+            # Handle **bold** markdown for "Latest About" section
+            if '**' in content:
+                # Split by paragraphs first
+                paragraphs = content.split('\n\n')
+                for para in paragraphs:
+                    para = para.strip()
+                    if para:
+                        # Convert **text** to <strong>text</strong>
+                        import re
+                        para = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', para)
+                        html.append(f'<p>{para}</p>')
+            else:
+                # Normal paragraph handling
+                paragraphs = content.split('\n\n')
+                for para in paragraphs:
+                    para = para.strip()
+                    if para and not para.startswith('#'):
+                        html.append(f'<p>{para}</p>')
         
         if section.get('table'):
             table = section['table']
