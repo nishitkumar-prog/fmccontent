@@ -213,73 +213,73 @@ COUNTRY: {target_country}
 RESEARCH: {research_context[:2500]}
 {alerts_context}
 
-STRUCTURE:
+Write naturally in two parts:
 
-PART 1 - Latest Updates (ONLY if updates available):
-**Latest About {focus_keyword}:**
-Write 2-3 short sentences with key dates/announcements. NO bullet points here.
+First (if updates exist): Start with **Latest About {focus_keyword}:** then 2-3 sentences about current dates/announcements.
 
-Example: "ICMAI announced December 2025 exam dates. Foundation exam scheduled for December 13, 2025. Admit cards release in early December 2025."
+Second: Write 180-220 word definition and overview. SHORT SENTENCES (max 12-15 words).
 
-PART 2 - Definition & Summary (180-220 words):
-Write in SHORT SENTENCES (max 12-15 words each). Use PROSE format - flowing paragraphs.
+What to include:
+- What it is (definition)
+- Who offers it
+- What it covers/focuses on
+- Structure (levels, parts, components)
+- Who it's for
+- Basic requirements
+- Why it matters in professional context
 
-DO NOT use bullet points in this section. Write natural paragraphs.
+What NOT to include:
+- Promotional words: prestigious, valuable, deep, comprehensive, renowned
+- Fluff phrases: "showcasing advanced expertise", "guide business strategy"
+- Unnecessary adjectives
 
-Cover:
-1. Clear definition (what it is)
-2. Who offers it
-3. Core purpose and focus areas
-4. Main structure/components (mention in prose, not bullets)
-5. Target audience
-6. Basic requirements (mention in prose, not bullets)
-7. Why it matters
+Write direct facts. Example:
+"The CMA is a professional certification in management accounting. IMA offers this credential globally. ICMAI conducts CMA exams in India. The certification covers cost accounting, financial planning, and business analysis. It includes three levels: Foundation, Intermediate, and Final. Each level tests specific competencies through written examinations. The program targets accounting graduates and finance professionals. Requirements include a degree and work experience. The certification qualifies professionals for controller and CFO positions."
 
-Example style:
-"The CMA stands for Certified Management Accountant. It is a professional certification recognized globally. IMA in the United States offers this credential. ICMAI administers the program in India. The certification validates expertise in management accounting and financial strategy.
-
-The core purpose is building strategic financial skills. It focuses on financial planning and analysis. Cost management is a key area. Performance measurement is another focus. The certification also emphasizes business decision support.
-
-The CMA consists of a two-part examination. It covers 12 core competencies across both parts. Topics include budgeting, forecasting, and internal controls. Ethics and professional standards are integral components.
-
-The certification targets finance professionals seeking leadership roles. It suits those in accounting, financial planning, and business analysis. Requirements include a bachelor's degree and two years of work experience. Candidates must pass both exam parts and maintain IMA membership."
-
-Write content now. Short sentences. NO bullets in first section."""
+Write content now. Natural prose, no section labels."""
     else:
-        prompt = f"""Write content for: "{heading['h2_title']}"
+        prompt = f"""Write content strictly for: "{heading['h2_title']}"
 
 TOPIC: {focus_keyword}
 COUNTRY: {target_country}
-KEY ASPECTS: {', '.join(heading.get('key_facts', []))}
+KEY FACTS: {', '.join(heading.get('key_facts', []))}
 RESEARCH: {research_context[:1500]}
 
-WRITE 80-120 words using SHORT SENTENCES (max 12-15 words).
+CRITICAL: Write ONLY about what the heading asks. Nothing else.
 
-BULLET POINT RULES - Use ONLY when:
-- Listing specific items (documents, fees, dates, steps in a process)
-- 3 or more similar items that are better as a list
-- Comparison of distinct options
+Example - if heading is "CMA Eligibility":
+DON'T write: "Becoming a CMA is prestigious. IMA defines CMA as..."
+DO write: "CMA Foundation requires Class 12 pass. Intermediate needs graduation or Foundation pass..."
 
-DO NOT use bullets for:
-- General descriptions
-- Flowing explanations
-- 1-2 items
+Rules:
+- 80-120 words
+- SHORT sentences (max 12-15 words)
+- Focus ONLY on the heading topic
+- No introductory context about what CMA is
+- No promotional language
+- State requirements, process, or facts directly
+- Use bullets only for actual lists (documents, options, steps)
 
-Most content should be PROSE. Bullets are occasional, not default.
+If heading is "Eligibility", write about:
+- Educational requirements for each level
+- Age requirements (if any)
+- Professional qualifications accepted
+- Work experience needed
 
-Example for "Eligibility":
-"CMA Foundation requires Class 12 completion from a recognized board. Students can enroll after Class 10. However, they cannot appear for exams until Class 12 results are out.
+If heading is "Exam Pattern", write about:
+- Number of papers
+- Question types
+- Marks distribution
+- Duration
 
-CMA Intermediate has multiple pathways. Candidates can enter after passing Foundation. Graduates can also apply directly, except fine arts degrees. Professional qualifications like CA Inter or CS Foundation are accepted.
+If heading is "Fees", write about:
+- Registration fee
+- Exam fee per level
+- Additional charges
 
-Required documents include:
-- Class 12 mark sheet
-- Graduation certificate (for direct entry)
-- Identity proof (Aadhar/PAN)
+Stay strictly on topic. Be factual. No fluff.
 
-CMA Final requires clearing both Intermediate groups. Candidates need minimum 40% in each paper."
-
-Write content now. Prose first, bullets only when necessary."""
+Write content now."""
     
     messages = [{"role": "user", "content": prompt}]
     max_tokens = 900 if is_first_section else 500
