@@ -38,6 +38,13 @@ with st.sidebar.expander("🔑 API Keys", expanded=True):
 
 gemini_model = st.sidebar.selectbox("Gemini Model", ["gemini-2.0-flash-exp", "gemini-2.0-flash"], index=0)
 
+# Add reset button
+st.sidebar.markdown("---")
+if st.sidebar.button("🔄 Reset All Data", type="secondary", use_container_width=True):
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+    st.rerun()
+
 # --- CONTEXT DATE SELECTOR ---
 st.sidebar.markdown("---")
 st.sidebar.header("📅 Content Context")
@@ -635,7 +642,7 @@ def export_to_html(article_title, sections, faqs, latest_updates):
     return '\n'.join(html)
 
 # --- MAIN UI ---
-tab1, tab2, tab3 = st.tabs(["1. Setup & Keywords", "2. Research & Outline", "3. Generate Content"])
+tab1, tab2, tab3, tab4 = st.tabs(["1. Setup & Keywords", "2. Research Queries", "3. Outline Structure", "4. Generate Content"])
 
 with tab1:
     st.header("Step 1: Topic & Keyword Setup")
@@ -646,9 +653,22 @@ with tab1:
         focus_keyword = st.text_input(
             "Main Topic *",
             value=st.session_state.main_topic,
-            placeholder="e.g., MBA Colleges India, Cloud Computing, Investment Banking"
+            placeholder="e.g., MBA Colleges India, Cloud Computing, Investment Banking",
+            key="topic_input"
         )
-        if focus_keyword:
+        if focus_keyword and focus_keyword != st.session_state.main_topic:
+            # Topic changed - clear all research data
+            st.session_state.focus_keyword = focus_keyword
+            st.session_state.main_topic = focus_keyword
+            st.session_state.fanout_results = None
+            st.session_state.research_results = {}
+            st.session_state.selected_queries = set()
+            st.session_state.custom_headings = []
+            st.session_state.selected_custom_headings = set()
+            st.session_state.generated_sections = []
+            st.session_state.content_outline = None
+            st.warning("⚠️ Topic changed - all research data cleared. Start fresh in Tab 2.")
+        elif focus_keyword:
             st.session_state.focus_keyword = focus_keyword
             st.session_state.main_topic = focus_keyword
     
@@ -715,7 +735,7 @@ with tab1:
             st.info("○ No PAA")
 
 with tab2:
-    st.header("Step 2: Research & Outline")
+    st.header("Step 2: Research Queries Selection")
     
     if not st.session_state.focus_keyword:
         st.error("⚠️ Set topic in Tab 1 first")
@@ -966,107 +986,234 @@ with tab2:
             st.info("Select queries above to research")
 
 with tab3:
-    st.header("Step 3: Generate Content")
+    st.header("Step 3: Outline Structure")
     
     if not st.session_state.research_results:
-        st.warning("Complete research in Tab 2 first")
-    else:
-        st.success(f"✅ {len(st.session_state.research_results)} headings researched")
+        st.warning("⚠️ Complete research in Tab 2 first")
+        st.stop()
+    
+    st.success(f"✅ {len(st.session_state.research_results)} queries researched and ready")
+    
+    # Generate semantic H1
+    st.markdown("---")
+    st.subheader("📝 Article Title (H1)")
+    
+    if not st.session_state.content_outline:
+        if st.button("Generate Semantic H1", type="primary"):
+            with st.spinner("Generating H1..."):
+                h1 = generate_semantic_h1(st.session_state.focus_keyword, st.session_state.research_results)
+                st.session_state.content_outline = {'article_title': h1, 'headings': []}
+                st.rerun()
+    
+    if st.session_state.content_outline:
+        # Display and allow editing of H1
+        h1_edit = st.text_input("Edit H1 Title:", 
+                               value=st.session_state.content_outline['article_title'],
+                               key="h1_editor")
+        if h1_edit != st.session_state.content_outline['article_title']:
+            st.session_state.content_outline['article_title'] = h1_edit
         
-        if st.button("🚀 Generate Publication-Ready Article", type="primary", use_container_width=True):
-            progress = st.progress(0)
-            status = st.empty()
-            start_time = time.time()
-            
-            # Step 1: Generate semantic H1
-            status.text("⏱️ Generating semantic H1...")
-            h1 = generate_semantic_h1(st.session_state.focus_keyword, st.session_state.research_results)
-            
-            # Step 2: Get latest updates
-            status.text("⏱️ Checking for latest updates...")
-            latest_updates = get_latest_news_updates(st.session_state.focus_keyword, st.session_state.target_country)
-            st.session_state.latest_updates = latest_updates
-            
-            # Step 3: Prepare research context
-            research_context = "\n\n".join([f"Q: {d['query']}\nA: {d['result']}" 
-                                          for d in st.session_state.research_results.values()])
-            
-            # Step 4: Generate sections
-            st.session_state.generated_sections = []
-            total = len(st.session_state.h2_headings)
-            
-            for idx, heading_data in enumerate(st.session_state.h2_headings):
-                # Timer
-                if idx > 0:
-                    elapsed = time.time() - start_time
-                    avg = elapsed / idx
-                    remaining = avg * (total - idx)
-                    mins = int(remaining // 60)
-                    secs = int(remaining % 60)
-                    timer = f"⏱️ ~{mins}m {secs}s remaining"
-                else:
-                    timer = "⏱️ Starting..."
+        # Build H2 structure from researched queries
+        st.markdown("---")
+        st.subheader("📋 Content Structure - H2 Headings")
+        st.info("These are your researched queries. They will become H2 headings in the article.")
+        
+        # Convert researched queries to outline headings
+        if not st.session_state.content_outline.get('headings'):
+            headings = []
+            for qid, data in st.session_state.research_results.items():
+                # Determine if it needs table or bullets
+                needs_table = True  # Default
+                custom_instruction = ""
                 
-                status.text(f"{timer} | Writing: {heading_data['h2']}...")
+                # Check if it's a custom heading with specific instructions
+                if qid.startswith('custom_'):
+                    custom_h = next((h for h in st.session_state.custom_headings if h['id'] == qid), None)
+                    if custom_h:
+                        needs_table = custom_h.get('content_type') == 'Table Required'
+                        custom_instruction = custom_h.get('table_instruction', '')
                 
-                # Generate content
-                heading_obj = {
-                    'h2_title': heading_data['h2'],
-                    'needs_table': heading_data.get('needs_table', True),
-                    'needs_bullets': not heading_data.get('needs_table', True)
-                }
-                
-                is_first = (idx == 0)
-                content, _ = generate_section_content(
-                    heading_obj, 
-                    research_context, 
-                    is_first_section=is_first,
-                    latest_updates=latest_updates if is_first else None
-                )
-                
-                # Generate table if needed
-                table = None
-                if heading_data.get('needs_table'):
-                    status.text(f"{timer} | Creating table...")
-                    table, error = generate_intelligent_table(heading_obj, research_context)
-                    if error and "incomplete" in error.lower():
-                        status.warning(f"⚠️ Table skipped for {heading_data['h2']} - incomplete data")
-                
-                st.session_state.generated_sections.append({
-                    'heading': heading_obj,
-                    'content': content,
-                    'table': table
+                headings.append({
+                    'qid': qid,
+                    'h2_title': data['query'],
+                    'needs_table': needs_table,
+                    'needs_bullets': not needs_table,
+                    'custom_table_instruction': custom_instruction,
+                    'content_focus': f"Write about {data['query']}"
                 })
-                
-                progress.progress((idx + 1) / total)
             
-            # Step 5: Generate FAQs
-            status.text("⏱️ Generating FAQs...")
-            faqs, _ = generate_faqs(st.session_state.focus_keyword, 
-                                   st.session_state.paa_keywords, 
-                                   research_context)
-            st.session_state.generated_faqs = faqs.get('faqs', []) if faqs else []
-            
-            # Step 6: Final coherence check
-            status.text("⏱️ Final quality check...")
-            passed, message = final_coherence_check(h1, st.session_state.generated_sections, 
-                                                    st.session_state.generated_faqs)
-            
-            elapsed_total = time.time() - start_time
-            mins_total = int(elapsed_total // 60)
-            secs_total = int(elapsed_total % 60)
-            
-            if passed:
-                st.session_state.content_outline = {'article_title': h1}
-                st.success(f"✅ Article Ready in {mins_total}m {secs_total}s! {message}")
-            else:
-                st.warning(f"⚠️ Quality check: {message}")
-                st.session_state.content_outline = {'article_title': h1}
-            
-            st.rerun()
+            st.session_state.content_outline['headings'] = headings
         
-        # Display content
-        if st.session_state.generated_sections and st.session_state.content_outline:
+        # Display outline with ability to reorder and edit
+        st.markdown(f"**Total Sections:** {len(st.session_state.content_outline['headings'])}")
+        
+        for idx, heading in enumerate(st.session_state.content_outline['headings']):
+            with st.expander(f"**H2 #{idx+1}: {heading['h2_title'][:60]}...**", expanded=False):
+                col1, col2 = st.columns([3, 1])
+                
+                with col1:
+                    # Edit H2 title
+                    new_title = st.text_input("H2 Title:", value=heading['h2_title'], 
+                                            key=f"h2_edit_{idx}")
+                    if new_title != heading['h2_title']:
+                        st.session_state.content_outline['headings'][idx]['h2_title'] = new_title
+                    
+                    # Content focus
+                    st.caption(f"Focus: {heading['content_focus']}")
+                
+                with col2:
+                    # Move up/down
+                    col_up, col_down, col_del = st.columns(3)
+                    with col_up:
+                        if idx > 0 and st.button("⬆️", key=f"up_{idx}", help="Move up"):
+                            headings = st.session_state.content_outline['headings']
+                            headings[idx], headings[idx-1] = headings[idx-1], headings[idx]
+                            st.rerun()
+                    with col_down:
+                        if idx < len(st.session_state.content_outline['headings'])-1 and \
+                           st.button("⬇️", key=f"down_{idx}", help="Move down"):
+                            headings = st.session_state.content_outline['headings']
+                            headings[idx], headings[idx+1] = headings[idx+1], headings[idx]
+                            st.rerun()
+                    with col_del:
+                        if st.button("🗑️", key=f"remove_{idx}", help="Remove"):
+                            st.session_state.content_outline['headings'].pop(idx)
+                            st.rerun()
+                
+                # Structure display
+                structure_tags = []
+                if heading.get('needs_table'):
+                    structure_tags.append("📊 Table")
+                if heading.get('needs_bullets'):
+                    structure_tags.append("📝 Bullets")
+                structure_tags.append("📄 Paragraph")
+                
+                st.info(f"Structure: {' + '.join(structure_tags)}")
+                
+                if heading.get('custom_table_instruction'):
+                    st.success(f"**Custom Table:** {heading['custom_table_instruction']}")
+                
+                # Toggle table/bullets
+                col_t, col_b = st.columns(2)
+                with col_t:
+                    if st.checkbox("Needs Table", value=heading.get('needs_table', True), 
+                                 key=f"table_{idx}"):
+                        st.session_state.content_outline['headings'][idx]['needs_table'] = True
+                        st.session_state.content_outline['headings'][idx]['needs_bullets'] = False
+                with col_b:
+                    if st.checkbox("Needs Bullets", value=heading.get('needs_bullets', False),
+                                 key=f"bullets_{idx}"):
+                        st.session_state.content_outline['headings'][idx]['needs_bullets'] = True
+                        st.session_state.content_outline['headings'][idx]['needs_table'] = False
+        
+        # Preview full outline
+        st.markdown("---")
+        st.markdown("### 📄 Full Article Outline Preview")
+        st.markdown(f"# {st.session_state.content_outline['article_title']}")
+        for idx, h in enumerate(st.session_state.content_outline['headings'], 1):
+            structure = "Table" if h.get('needs_table') else "Bullets"
+            st.markdown(f"{idx}. **{h['h2_title']}** [{structure}]")
+        
+        st.markdown("---")
+        st.info("✅ Outline ready! Go to Tab 4 to generate content.")
+
+with tab4:
+    st.header("Step 4: Generate Content")
+    
+    if not st.session_state.content_outline or not st.session_state.content_outline.get('headings'):
+        st.warning("⚠️ Create outline structure in Tab 3 first")
+        st.stop()
+    
+    st.success(f"✅ Outline ready with {len(st.session_state.content_outline['headings'])} sections")
+    
+    # Show outline summary
+    with st.expander("📋 Article Outline", expanded=False):
+        st.markdown(f"**H1:** {st.session_state.content_outline['article_title']}")
+        for idx, h in enumerate(st.session_state.content_outline['headings'], 1):
+            st.markdown(f"{idx}. {h['h2_title']}")
+    
+    if st.button("🚀 Generate Publication-Ready Article", type="primary", use_container_width=True):
+        progress = st.progress(0)
+        status = st.empty()
+        start_time = time.time()
+        
+        # Step 1: Get latest updates
+        status.text("⏱️ Checking for latest updates...")
+        latest_updates = get_latest_news_updates(st.session_state.focus_keyword, st.session_state.target_country)
+        st.session_state.latest_updates = latest_updates
+        
+        # Step 2: Prepare research context
+        research_context = "\n\n".join([f"Q: {d['query']}\nA: {d['result']}" 
+                                      for d in st.session_state.research_results.values()])
+        
+        # Step 3: Generate sections based on outline
+        st.session_state.generated_sections = []
+        total = len(st.session_state.content_outline['headings'])
+        
+        for idx, heading_data in enumerate(st.session_state.content_outline['headings']):
+            # Timer
+            if idx > 0:
+                elapsed = time.time() - start_time
+                avg = elapsed / idx
+                remaining = avg * (total - idx)
+                mins = int(remaining // 60)
+                secs = int(remaining % 60)
+                timer = f"⏱️ ~{mins}m {secs}s remaining"
+            else:
+                timer = "⏱️ Starting..."
+            
+            status.text(f"{timer} | Writing: {heading_data['h2_title'][:50]}...")
+            
+            is_first = (idx == 0)
+            content, _ = generate_section_content(
+                heading_data, 
+                research_context, 
+                is_first_section=is_first,
+                latest_updates=latest_updates if is_first else None
+            )
+            
+            # Generate table if needed
+            table = None
+            if heading_data.get('needs_table'):
+                status.text(f"{timer} | Creating table...")
+                table, error = generate_intelligent_table(heading_data, research_context)
+                if error and "incomplete" in error.lower():
+                    status.warning(f"⚠️ Table skipped - incomplete data")
+            
+            st.session_state.generated_sections.append({
+                'heading': heading_data,
+                'content': content,
+                'table': table
+            })
+            
+            progress.progress((idx + 1) / total)
+        
+        # Step 4: Generate FAQs
+        status.text("⏱️ Generating FAQs...")
+        faqs, _ = generate_faqs(st.session_state.focus_keyword, 
+                               st.session_state.paa_keywords, 
+                               research_context)
+        st.session_state.generated_faqs = faqs.get('faqs', []) if faqs else []
+        
+        # Step 5: Final coherence check
+        status.text("⏱️ Final quality check...")
+        h1 = st.session_state.content_outline['article_title']
+        passed, message = final_coherence_check(h1, st.session_state.generated_sections, 
+                                                st.session_state.generated_faqs)
+        
+        elapsed_total = time.time() - start_time
+        mins_total = int(elapsed_total // 60)
+        secs_total = int(elapsed_total % 60)
+        
+        if passed:
+            st.success(f"✅ Article Ready in {mins_total}m {secs_total}s! {message}")
+        else:
+            st.warning(f"⚠️ Quality check: {message}")
+        
+        st.rerun()
+    
+    # Display generated content
+    if st.session_state.generated_sections:
             st.markdown("---")
             st.markdown("## 📄 Article Preview")
             
