@@ -1094,6 +1094,12 @@ with tab3:
         st.subheader("📋 Content Structure - H2 Headings")
         st.info("These are your researched queries. They will become H2 headings in the article.")
         
+        col_regen, _ = st.columns([1, 3])
+        with col_regen:
+            if st.button("🔄 Regenerate Outline", type="secondary", help="Re-optimize headings from research queries"):
+                st.session_state.content_outline['headings'] = []
+                st.rerun()
+        
         # Convert researched queries to outline headings
         if not st.session_state.content_outline.get('headings'):
             
@@ -1350,6 +1356,4 @@ with tab4:
                     text += f"{sec['heading']['h2_title']}\n\n{sec.get('content', '')}\n\n"
                 st.download_button("📝 Download Text", text,
                                  file_name=f"{st.session_state.focus_keyword.replace(' ', '_')}.txt",
-                                 mime="text/plain", use_container_width=True)
-session_state.focus_keyword.replace(' ', '_')}.txt",
                                  mime="text/plain", use_container_width=True)
