@@ -251,56 +251,61 @@ def get_latest_news_updates(focus_keyword, target_country, days_back=15):
     
     return []
 
-def generate_outline_with_keywords(focus_keyword, target_country, keyword_data, research_data):
-    """Generate outline using researched queries as H2 headings"""
+def generate_outline_with_keywords(focus_keyword, target_country, keyword_data, research_data, custom_headings):
+    """Generate outline using researched queries as H2 headings with custom structure control"""
     if not model: return None, "Gemini not configured"
     
     research_summary = "\n".join([f"- {data['query']}: {data['result'][:150]}..." for data in list(research_data.values())[:15]])
     
-    # Extract researched query topics to use as headings
+    # Extract researched query topics
     researched_queries = [data['query'] for data in research_data.values()]
+    
+    # Build custom headings instructions
+    custom_instructions = ""
+    if custom_headings:
+        custom_instructions = "\n### CUSTOM HEADINGS WITH CONTENT CONTROL:\n"
+        for ch in custom_headings:
+            custom_instructions += f"\n- H2: \"{ch['query']}\"\n"
+            custom_instructions += f"  Content Type: {ch.get('content_type', 'Paragraph Only')}\n"
+            if ch.get('table_instruction'):
+                custom_instructions += f"  Table Requirement: {ch['table_instruction']}\n"
+    
     researched_queries_text = "\n".join([f"- {q}" for q in researched_queries])
     
-    # Prepare keyword list as backup/reference
-    keyword_list = "\n".join([f"- {kw['keyword']} (Search Vol: {kw.get('search_volume', 'N/A')})" for kw in keyword_data[:50]]) if keyword_data else "No keyword data provided"
+    # Prepare keyword list as backup
+    keyword_list = "\n".join([f"- {kw['keyword']}" for kw in keyword_data[:50]]) if keyword_data else "No keyword data"
     
     prompt = f"""
     ROLE: SEO Content Architect
-    TASK: Create a content outline for "{focus_keyword}"
+    TASK: Create content outline for "{focus_keyword}"
     TARGET: {target_country} | DATE: {formatted_date}
 
-    ### PRIMARY: USE RESEARCHED QUERIES AS H2 HEADINGS
-    You MUST use these researched queries as your H2 headings:
+    ### RESEARCHED QUERIES (use as H2 headings):
     {researched_queries_text}
+    {custom_instructions}
 
-    ### SECONDARY: Available Keywords (reference only):
-    {keyword_list}
-
-    ### HEADING PROTOCOL:
-    1. **USE RESEARCHED QUERIES:** H2 headings should match researched queries
-       - Use exact query or clean version
-       - Example: "What are B.Tech fees at Adamas?" → "Adamas University B.Tech Fees"
+    ### CONTENT STRUCTURE RULES (MANDATORY FOR EVERY HEADING):
     
-    2. **LOGICAL FLOW:**
-       - Definition/Overview → Details (Fees, Eligibility, Process) → Outcomes (Career, Salary)
+    1. **EVERY SECTION MUST HAVE:**
+       - ONE paragraph (4-6 sentences, readable length 12-20 words each)
+       - THEN: Table OR Bullet points (never just paragraph alone)
+       - NEVER: Multiple long paragraphs without structured data
     
-    3. **TABLE DECISIONS - BE SELECTIVE:**
-       - ONLY mark 'needs_table' if heading clearly requires data breakdown
-       - If heading is "B.Tech Fees" → needs_table: true
-       - If heading is "About B.Tech" → needs_table: false
-       - If heading is "Scholarships" → needs_table: true
-       - Don't force tables where simple paragraphs work better
-
-    4. **TABLE FOCUS:**
-       - Each table MUST stay strictly on its heading topic
+    2. **TABLE vs BULLETS Decision:**
+       - If heading has CUSTOM table instruction → MUST have table
+       - If data is quantitative (fees, marks, dates) → Table
+       - If data is qualitative (steps, features, tips) → Bullet points
+       - If data is mixed → Table preferred
+    
+    3. **TABLE FOCUS:**
+       - Each table strictly on its heading topic only
        - Fee table = ONLY fees, no scholarships
-       - Eligibility table = ONLY eligibility criteria
-       - No mixing of topics in tables
-
-    5. **CONTENT EXPECTATIONS:**
-       - Sections should use ONLY explicit data from research
-       - NO invented "typical" scenarios
-       - If research lacks data for a topic, that heading might not need a table
+       - Course table = ONLY courses, no eligibility
+    
+    4. **HEADING ORDER:**
+       - Use logical flow: Overview → Details → Outcomes
+       - Keep researched queries in sensible order
+       - Custom headings should be placed where they fit best
 
     RESEARCH CONTEXT:
     {research_summary}
@@ -308,17 +313,21 @@ def generate_outline_with_keywords(focus_keyword, target_country, keyword_data, 
     RETURN ONLY VALID JSON:
     {{
       "article_title": "{focus_keyword}: Complete Guide {current_year}",
-      "meta_description": "Detailed guide on {focus_keyword} covering all aspects based on official data.",
+      "meta_description": "Detailed guide on {focus_keyword} with comprehensive data tables and structured information.",
       "headings": [
         {{
-          "h2_title": "[Researched Query or Clean Version]",
-          "content_focus": "Specific aspects to cover based on available research data",
+          "h2_title": "[Exact researched query or custom heading]",
+          "content_focus": "What to cover in the paragraph",
           "needs_table": true,
-          "table_purpose": "Present specific data for [exact topic of heading]",
-          "table_type": "fees|eligibility|timeline|comparison|syllabus"
+          "table_purpose": "Exact data to show in table",
+          "table_type": "fees|courses|eligibility|timeline|comparison|syllabus",
+          "needs_bullets": false,
+          "custom_table_instruction": "[Copy from custom heading if provided]"
         }}
       ]
     }}
+    
+    CRITICAL: EVERY heading must have needs_table=true OR needs_bullets=true. Never both false.
     """
     
     try:
@@ -331,47 +340,38 @@ def generate_outline_with_keywords(focus_keyword, target_country, keyword_data, 
         return None, str(e)
 
 def generate_section_content(heading, focus_keyword, target_country, research_context, is_first_section=False, latest_updates=None):
-    """Generate direct, simple content for each section"""
+    """Generate direct, simple content - ALWAYS 1 paragraph + (table OR bullets)"""
     if not grok_key: return None, "Grok required"
     
     system_instruction = f"""
-You are a technical writer creating DIRECT, SIMPLE content.
+You are a technical writer creating STRUCTURED, SCANNABLE content.
 Context Date: {formatted_date} | Target: {target_country}
 
-CRITICAL WRITING RULES:
+MANDATORY STRUCTURE FOR EVERY SECTION:
+✓ ONE introductory paragraph (4-6 sentences, 12-20 words each)
+✓ THEN: Table OR Bullet points (specified in instructions)
+✗ NEVER: Multiple paragraphs without structured data
+✗ NEVER: Long walls of text
 
-1. **ONLY USE EXPLICITLY STATED DATA:**
-   - ❌ NEVER invent: "Not explicitly stated; usually separate and variable"
-   - ❌ NEVER assume: "typically", "generally", "usually varies", "often includes"
-   - ✅ ONLY state what research explicitly mentions
-   - If research doesn't provide specific data, DON'T mention that aspect at all
-   - Example: If research says "Fee is ₹15,000", write that. If research doesn't mention refund policy, don't add "Refund policy varies"
+WRITING RULES:
 
-2. **SENTENCE LENGTH - READABLE BUT FLEXIBLE:**
-   - Aim for 12-18 words per sentence (readable length)
-   - Can go to 20-25 words if needed to complete a thought clearly
-   - Not a strict rule - prioritize clarity over exact word count
-   - Break long complex ideas into 2 sentences rather than one 30+ word sentence
+1. **PARAGRAPH (Always exactly ONE):**
+   - Introduce the heading topic
+   - Set context for what follows (table or bullets)
+   - 4-6 sentences, readable length (12-20 words per sentence, flexible)
+   - Direct facts only
 
-3. **NO VAGUE FILLER:**
-   - ❌ Remove: "varies by institution", "depends on factors", "usually separate", "may include"
-   - ❌ Remove: "typically ranges from X to Y" (unless research explicitly states the range)
-   - ✅ Use: Only concrete facts from research
+2. **ONLY EXPLICIT DATA:**
+   - Never invent "varies", "usually separate", "typically"
+   - If research doesn't state it, don't mention it
+   - Example: If no refund policy mentioned → skip it entirely
 
-4. **NO CONNECTOR PHRASES:**
-   - ❌ Remove: "It is important to note", "Additionally", "Furthermore", "Moreover"
-   - ✅ Use: Direct statements only
+3. **SENTENCE STYLE:**
+   - Direct statements in present tense
+   - No connectors: "Additionally", "Furthermore", "Moreover"
+   - No fluff: "It's important to note", "Understanding this is crucial"
 
-5. **BE DIRECT & FACTUAL:**
-   - Start immediately with facts
-   - No philosophical statements
-   - State facts in present tense
-   - NO HEADING REPETITION in opening line
-
-6. **PARAGRAPH STRUCTURE:**
-   - 4-6 sentences per paragraph
-   - Each paragraph = one main topic
-   - White space between paragraphs
+4. **NO HEADING REPETITION:** Don't start with the heading text
 """
 
     if is_first_section and latest_updates:
@@ -381,62 +381,78 @@ CRITICAL WRITING RULES:
 
 TASK: Write opening content for "{focus_keyword}"
 
-LATEST UPDATES (show these as bullet points at the very top):
+FORMAT:
+1. Latest Updates (bullet points at top)
+2. ONE introductory paragraph (4-6 sentences)
+
+LATEST UPDATES:
 {updates_text}
 
-Then write 3-4 paragraphs (each 4-6 sentences, readable length):
-- What {focus_keyword} is (brief definition)
+Then write ONE paragraph covering:
+- Brief definition of {focus_keyword}
 - Who governs/issues it
-- Main purpose or benefit
-- Target audience in {target_country}
+- Main purpose
+- Target audience
 
-CRITICAL RULES:
-- ONLY use facts explicitly stated in research data below
-- If research doesn't mention something, skip it entirely
-- NO invented examples or typical scenarios
-- NO "usually", "typically", "generally", "varies"
-- Keep sentences readable (12-20 words, flexible as needed)
+CRITICAL:
+- Just ONE paragraph after updates
+- Each sentence: 12-20 words (flexible)
+- Only facts from research below
 
 RESEARCH DATA:
 {research_context[:2500]}
 """
     else:
-        table_hint = ""
-        if heading.get('needs_table'):
-            table_hint = f"\n\nNote: Write content introducing this topic. A table will follow with detailed data. Keep paragraphs focused on context, not listing all data points."
+        # Determine if bullets needed
+        needs_bullets = heading.get('needs_bullets', False)
+        has_custom_table = heading.get('custom_table_instruction', '')
+        
+        structure_instruction = ""
+        if needs_bullets:
+            structure_instruction = """
+STRUCTURE REQUIRED:
+1. ONE paragraph (4-6 sentences) introducing the topic
+2. THEN: Bullet points with key facts
+
+Bullet points should be:
+- Short (under 20 words each)
+- Specific and factual
+- 5-8 bullets covering main points from research
+"""
+        else:
+            structure_instruction = f"""
+STRUCTURE REQUIRED:
+1. ONE paragraph (4-6 sentences) introducing the topic
+2. THEN: A table will follow (don't list table data in paragraph)
+
+Paragraph should explain:
+- What this section covers
+- Why it matters
+- What the table will show
+{f"- Table will show: {has_custom_table}" if has_custom_table else ""}
+"""
         
         prompt = f"""
 {system_instruction}
 
 TASK: Write content for: "{heading['h2_title']}"
 Focus: {heading.get('content_focus', 'Technical details')}
-{table_hint}
 
-Write 3-4 paragraphs (readable sentences, 12-20 words each):
-- State facts directly from research
-- Include specific numbers, dates, amounts that research provides
-- Explain what data means practically
-- No assumptions or general statements
+{structure_instruction}
 
-STRICT DATA RULES:
-- If research explicitly states fees: include exact amounts
-- If research explicitly states eligibility: list specific requirements
-- If research explicitly states process steps: mention them
-- If research doesn't provide data: DON'T invent "typical" scenarios
-- NEVER add phrases like "varies", "usually separate", "not specified"
-
-CRITICAL:
-- NO subheadings
-- NO vague qualifiers
-- Only facts from research data below
-- Readable sentence length (not rigid, aim 12-20 words)
+STRICT RULES:
+- Write ONLY ONE paragraph (4-6 sentences)
+{"- Then write bullet points with factual data" if needs_bullets else "- Table will follow your paragraph"}
+- Only use facts explicitly in research
+- No invented data, no "varies", no "typically"
+- Sentences: 12-20 words (aim for readability)
 
 RESEARCH DATA:
 {research_context[:2500]}
 """
     
     messages = [{"role": "user", "content": prompt}]
-    content, error = call_grok(messages, max_tokens=1000, temperature=0.3)
+    content, error = call_grok(messages, max_tokens=900, temperature=0.3)
     return content, error
 
 def generate_intelligent_table(heading, target_country, research_context):
@@ -444,97 +460,101 @@ def generate_intelligent_table(heading, target_country, research_context):
     if not grok_key or not heading.get('needs_table'): return None, "No table needed"
     
     table_type = heading.get('table_type', 'general')
+    custom_instruction = heading.get('custom_table_instruction', '')
+    
+    # Build specific instructions based on custom or standard requirements
+    specific_requirement = ""
+    if custom_instruction:
+        specific_requirement = f"""
+### USER'S SPECIFIC TABLE REQUIREMENT:
+{custom_instruction}
+
+YOU MUST create a table that exactly matches this requirement. This is a custom heading added by the user with explicit instructions.
+"""
     
     prompt = f"""
 TASK: Create a FOCUSED data table STRICTLY for "{heading['h2_title']}"
 Context: {target_country} | Date: {formatted_date}
 Table Type: {table_type}
 
+{specific_requirement}
+
 RESEARCH DATA:
-{research_context[:3000]}
+{research_context[:3500]}
 
 CRITICAL TABLE GENERATION RULES:
 
 1. **STRICT TOPIC FOCUS:**
    - Table must be 100% relevant to "{heading['h2_title']}" ONLY
-   - ❌ If heading is "B.Tech Fees", DO NOT include scholarship data
-   - ❌ If heading is "Eligibility", DO NOT include fee information
+   - ❌ If heading is "B.Tech Courses and Fees", show ALL courses with their fees
+   - ❌ If heading is "Scholarships", show ONLY scholarships
    - ✅ Stay laser-focused on the exact heading topic
-   - Better to have 3 highly relevant rows than 8 rows with mixed topics
+   - 3-5 focused rows minimum, up to 12 rows if data available
 
 2. **ONLY EXPLICIT DATA - NO INVENTION:**
-   - ONLY include data that is EXPLICITLY stated in research
-   - ❌ NEVER add: "Varies", "Not specified", "Usually separate", "Depends on category"
-   - ❌ NEVER invent typical ranges or common scenarios
-   - ✅ If research says "₹15,000", use that exact figure
-   - ✅ If research doesn't provide specific data for a row, DON'T include that row
-   - Empty cells are NOT acceptable - if you don't have data, remove that row entirely
+   - ONLY include data EXPLICITLY stated in research
+   - ❌ NEVER: "Varies", "Not specified", "Typically", "Usually"
+   - ✅ If research says "CSE - ₹2,50,000", use that
+   - ✅ If research doesn't have data for a course, don't add that row
+   - Empty cells = remove that row entirely
 
-3. **VERIFY WITH OFFICIAL SOURCES:**
-   - Prioritize data from official university/institution websites mentioned in research
-   - Cross-reference with competitor institutions if mentioned in research
-   - Use most recent data available in research context
-   - If research cites official numbers, use those over generic statements
+3. **SCAN FOR OFFICIAL DATA:**
+   - Look for data from official university websites in research
+   - Use most recent figures mentioned
+   - Cross-reference competitor data if available
+   - Prioritize {formatted_date} or latest academic year data
 
-4. **APPROPRIATE FORMAT BASED ON HEADING:**
+4. **FORMAT BASED ON HEADING:**
    
-   For FEES headings:
-   - Columns: [Fee Component, Amount, When Payable]
-   - Only fee components explicitly mentioned in research
+   For "Courses and Fees" headings:
+   - Columns: [Course/Specialization, Annual Fee, Duration, Total Fee]
+   - List ALL available courses from research
    
-   For ELIGIBILITY headings:
-   - Columns: [Requirement Type, Specific Criteria, Mandatory/Optional]
-   - Only requirements explicitly stated
+   For "Fee Structure" headings:
+   - Columns: [Fee Component, Amount, When Payable, Notes]
+   - Break down: Tuition, Exam, Lab, Library, etc.
    
-   For TIMELINE headings:
-   - Columns: [Event/Phase, Date/Period, Duration]
-   - Only dates/timelines explicitly mentioned
+   For "Eligibility" headings:
+   - Columns: [Requirement, Criteria, Mandatory]
+   - Education, Marks, Exam scores
    
-   For COMPARISON headings:
-   - Columns: [Aspect, Option 1, Option 2]
-   - Only comparison points explicitly made in research
+   For "Scholarships" headings:
+   - Columns: [Scholarship Name, Criteria, Amount/%, Validity]
    
-   For SYLLABUS/TOPICS:
-   - Columns: [Subject/Paper, Topics, Marks/Weightage]
-   - Only subjects explicitly detailed
+   For "Timeline" headings:
+   - Columns: [Phase, Date/Period, Action Required]
 
-5. **QUALITY OVER QUANTITY:**
-   - 3 accurate, focused rows > 10 rows with vague/off-topic data
-   - If research only provides 2 solid data points, make 2 rows
-   - Don't pad the table with generic information
+5. **COMPREHENSIVE BUT ACCURATE:**
+   - Include ALL relevant data points from research
+   - If research lists 8 courses, table should have 8 rows
+   - If research lists 3 fee components, table has 3 rows
+   - Don't pad with generic rows
 
-6. **NO VAGUE LANGUAGE IN CELLS:**
-   - ❌ "Varies by category", "Depends on program", "Typically ranges from..."
-   - ❌ "Not explicitly stated", "Usually separate", "May vary"
-   - ✅ "₹15,000", "Bachelor's degree with 50%", "May 2025"
-   - ✅ If you can't be specific, don't include that row
+6. **NO VAGUE LANGUAGE:**
+   - ❌ "Varies", "Depends", "Typically", "Usually"
+   - ✅ "₹2,50,000", "Bachelor's with 50%", "June 2025"
 
-7. **FORMATTING:**
-   - Clear, specific headers with units
-   - Concise cells (under 15 words each)
-   - Footer note ONLY if needed for critical context from research
+7. **CLEAR FORMATTING:**
+   - Headers with units (₹, %, years)
+   - Concise cells (under 15 words)
+   - Footer note only if critical
 
-8. **RECENCY CHECK:**
-   - Use data current to {formatted_date}
-   - If deadline passed, mark "Closed" or show next date
-   - Prioritize current year data
-
-REMEMBER: This table is ONLY for "{heading['h2_title']}" - stay strictly on topic.
+REMEMBER: If this is a custom heading with specific instructions, follow those exactly.
 
 Return ONLY valid JSON:
 {{
-  "table_title": "Specific Title for {heading['h2_title']}",
+  "table_title": "{heading['h2_title']} - {current_year}",
   "headers": ["Column 1", "Column 2", "Column 3"],
   "rows": [
-      ["Explicit Data 1A", "Explicit Data 1B", "Explicit Data 1C"],
-      ["Explicit Data 2A", "Explicit Data 2B", "Explicit Data 2C"]
+      ["Data 1A", "Data 1B", "Data 1C"],
+      ["Data 2A", "Data 2B", "Data 2C"]
   ],
-  "footer_note": "Only if critical context needed from research"
+  "footer_note": "Only if critical context needed"
 }}
 """
     
     messages = [{"role": "user", "content": prompt}]
-    response, error = call_grok(messages, max_tokens=1500, temperature=0.2)
+    response, error = call_grok(messages, max_tokens=1800, temperature=0.2)
     
     if error: return None, error
     try:
@@ -688,39 +708,97 @@ with tab1:
     
     # Custom Headings Section
     st.subheader("Option 1: Add Your Own Headings")
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        custom_heading_input = st.text_input("Add Custom Heading/Query:", placeholder="e.g., Adamas University B.Tech Fees")
-    with col2:
-        if st.button("➕ Add Heading", use_container_width=True):
+    
+    with st.expander("➕ Add Custom Heading with Content Control", expanded=True):
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            custom_heading_input = st.text_input("Heading/H2 Title:", placeholder="e.g., B.Tech Courses and Fees")
+        with col2:
+            content_type = st.selectbox("Content Structure:", ["Table Required", "Bullet Points", "Paragraph Only"])
+        
+        table_instruction = ""
+        if content_type == "Table Required":
+            table_instruction = st.text_area(
+                "What should the table show?", 
+                placeholder="e.g., All B.Tech specializations with their annual fees, duration, and eligibility",
+                height=80
+            )
+        
+        if st.button("➕ Add This Heading", use_container_width=True):
             if custom_heading_input.strip():
                 heading_id = f"custom_{len(st.session_state.custom_headings)}"
                 st.session_state.custom_headings.append({
                     'id': heading_id,
                     'query': custom_heading_input.strip(),
-                    'category': 'Custom'
+                    'category': 'Custom',
+                    'content_type': content_type,
+                    'table_instruction': table_instruction if content_type == "Table Required" else ""
                 })
+                st.success(f"✓ Added: {custom_heading_input.strip()}")
                 st.rerun()
     
     # Display custom headings
     if st.session_state.custom_headings:
+        st.markdown("---")
         st.markdown("**Your Custom Headings:**")
         for heading in st.session_state.custom_headings:
-            col1, col2, col3 = st.columns([3, 1, 1])
-            with col1:
-                is_selected = heading['id'] in st.session_state.selected_custom_headings
-                if st.checkbox(f"**{heading['query']}**", value=is_selected, key=f"custom_{heading['id']}"):
-                    st.session_state.selected_custom_headings.add(heading['id'])
-                else:
-                    st.session_state.selected_custom_headings.discard(heading['id'])
-            with col2:
-                if heading['id'] in st.session_state.research_results:
-                    st.success("✓ Done")
-            with col3:
-                if st.button("🗑️", key=f"del_{heading['id']}", help="Delete this heading"):
-                    st.session_state.custom_headings = [h for h in st.session_state.custom_headings if h['id'] != heading['id']]
-                    st.session_state.selected_custom_headings.discard(heading['id'])
-                    st.rerun()
+            with st.container():
+                col1, col2, col3, col4 = st.columns([3, 1, 1, 0.5])
+                with col1:
+                    is_selected = heading['id'] in st.session_state.selected_custom_headings
+                    label = f"**{heading['query']}**"
+                    if heading.get('content_type'):
+                        label += f" [{heading['content_type']}]"
+                    if st.checkbox(label, value=is_selected, key=f"custom_{heading['id']}"):
+                        st.session_state.selected_custom_headings.add(heading['id'])
+                    else:
+                        st.session_state.selected_custom_headings.discard(heading['id'])
+                    
+                    if heading.get('table_instruction'):
+                        st.caption(f"📊 Table: {heading['table_instruction'][:60]}...")
+                
+                with col2:
+                    if heading['id'] in st.session_state.research_results:
+                        st.success("✓ Done")
+                    else:
+                        st.info("Pending")
+                
+                with col3:
+                    if st.button("✏️ Edit", key=f"edit_{heading['id']}", help="Edit this heading"):
+                        st.session_state[f'editing_{heading["id"]}'] = True
+                
+                with col4:
+                    if st.button("🗑️", key=f"del_{heading['id']}", help="Delete"):
+                        st.session_state.custom_headings = [h for h in st.session_state.custom_headings if h['id'] != heading['id']]
+                        st.session_state.selected_custom_headings.discard(heading['id'])
+                        st.rerun()
+                
+                # Edit mode
+                if st.session_state.get(f'editing_{heading["id"]}', False):
+                    with st.container():
+                        st.markdown("**Edit Heading:**")
+                        new_title = st.text_input("Title:", value=heading['query'], key=f"edit_title_{heading['id']}")
+                        new_content_type = st.selectbox("Content:", ["Table Required", "Bullet Points", "Paragraph Only"], 
+                                                       index=["Table Required", "Bullet Points", "Paragraph Only"].index(heading.get('content_type', 'Paragraph Only')),
+                                                       key=f"edit_type_{heading['id']}")
+                        new_instruction = ""
+                        if new_content_type == "Table Required":
+                            new_instruction = st.text_area("Table instruction:", value=heading.get('table_instruction', ''), 
+                                                          key=f"edit_instr_{heading['id']}")
+                        
+                        col_save, col_cancel = st.columns(2)
+                        with col_save:
+                            if st.button("💾 Save", key=f"save_{heading['id']}"):
+                                heading['query'] = new_title
+                                heading['content_type'] = new_content_type
+                                heading['table_instruction'] = new_instruction if new_content_type == "Table Required" else ""
+                                st.session_state[f'editing_{heading["id"]}'] = False
+                                st.rerun()
+                        with col_cancel:
+                            if st.button("❌ Cancel", key=f"cancel_{heading['id']}"):
+                                st.session_state[f'editing_{heading["id"]}'] = False
+                                st.rerun()
+                st.markdown("---")
     
     st.markdown("---")
     st.subheader("Option 2: AI-Generated Research Queries")
@@ -922,7 +1000,8 @@ with tab4:
                     st.session_state.focus_keyword,
                     st.session_state.target_country,
                     st.session_state.keyword_planner_data or [],
-                    st.session_state.research_results
+                    st.session_state.research_results,
+                    st.session_state.custom_headings
                 )
                 if outline:
                     st.session_state.content_outline = outline
@@ -941,8 +1020,21 @@ with tab4:
         for idx, h in enumerate(outline['headings'], 1):
             with st.expander(f"**H2 #{idx}: {h['h2_title']}**", expanded=False):
                 st.write(f"**Content Focus:** {h['content_focus']}")
+                
+                # Show structure
+                structure_tags = []
                 if h.get('needs_table'):
-                    st.info(f"📊 **Table Required:** {h.get('table_purpose')}")
+                    structure_tags.append("📊 Table")
+                if h.get('needs_bullets'):
+                    structure_tags.append("📝 Bullets")
+                structure_tags.append("📄 Paragraph")
+                
+                st.info(f"Structure: {' + '.join(structure_tags)}")
+                
+                if h.get('needs_table'):
+                    st.write(f"**Table Purpose:** {h.get('table_purpose')}")
+                    if h.get('custom_table_instruction'):
+                        st.success(f"**Custom Requirement:** {h['custom_table_instruction']}")
                     st.caption(f"Table Type: {h.get('table_type', 'general')}")
 
 with tab5:
