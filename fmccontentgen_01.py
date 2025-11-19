@@ -87,7 +87,11 @@ CRITICAL INSTRUCTIONS:
         try:
             response = requests.post("https://api.perplexity.ai/chat/completions", headers=headers, json=data, timeout=45)
             response.raise_for_status()
-            result = response.json()
+            try:
+                result = response.json()
+            except json.JSONDecodeError:
+                return {"error": "Invalid JSON response from API"}
+                
             if 'choices' in result and len(result['choices']) > 0:
                 return result
             return {"error": "Invalid response"}
@@ -108,7 +112,11 @@ def call_grok(messages, max_tokens=4000, temperature=0.6):
     try:
         response = requests.post(GROK_API_URL, headers=headers, json=payload, timeout=120)
         response.raise_for_status()
-        result = response.json()
+        try:
+            result = response.json()
+        except json.JSONDecodeError:
+            return None, "Invalid JSON response from Grok"
+            
         if 'choices' in result and len(result['choices']) > 0:
             return result['choices'][0]['message']['content'], None
         return None, "Error"
@@ -143,7 +151,7 @@ def generate_research_queries(topic, mode="AI Overview (simple)"):
             json_text = json_text.split("\`\`\`json")[1].split("\`\`\`")[0]
         return json.loads(json_text.strip()), None
     except Exception as e:
-        return None, str(e)
+        return None, f"JSON Error: {str(e)}"
 
 def parse_keyword_planner_csv(file_path):
     """Parse Google Keyword Planner CSV with multiple encoding support"""
@@ -858,7 +866,7 @@ with tab1:
                     progress_bar = st.progress(0)
                     status = st.empty()
                     for i, qid in enumerate(unresearched):
-                        q_text = None
+                        q_text = None # Initialize q_text to avoid UnboundLocalError
                         
                         # Handle both AI-generated and custom queries
                         if qid.startswith('custom_'):
@@ -868,14 +876,14 @@ with tab1:
                                 if custom_h.get('table_instruction'):
                                     q_text = f"{q_text}. Specifically: {custom_h['table_instruction']}"
                         else:
-                            try:
+                            try: # Add try/except for safe index access
                                 q_idx = int(qid.split('_')[1])
                                 if 0 <= q_idx < len(queries):
                                     q_text = queries[q_idx]['query']
                             except (ValueError, IndexError):
-                                continue
+                                pass
                         
-                        if q_text:
+                        if q_text: # Only proceed if we have a valid query
                             status.text(f"Researching: {q_text[:80]}...")
                             
                             res = call_perplexity(q_text)
@@ -884,7 +892,6 @@ with tab1:
                                     'query': q_text,
                                     'result': res['choices'][0]['message']['content']
                                 }
-                        
                         progress_bar.progress((i + 1) / len(unresearched))
                         time.sleep(1)
                     st.success("Research Complete!")
