@@ -706,106 +706,11 @@ with tab1:
     st.header("Research Phase")
     st.info(f"Current Context Date: **{formatted_date}**")
     
-    # Custom Headings Section
-    st.subheader("Option 1: Add Your Own Headings")
-    
-    with st.expander("➕ Add Custom Heading with Content Control", expanded=True):
-        col1, col2 = st.columns([2, 1])
-        with col1:
-            custom_heading_input = st.text_input("Heading/H2 Title:", placeholder="e.g., B.Tech Courses and Fees")
-        with col2:
-            content_type = st.selectbox("Content Structure:", ["Table Required", "Bullet Points", "Paragraph Only"])
-        
-        table_instruction = ""
-        if content_type == "Table Required":
-            table_instruction = st.text_area(
-                "What should the table show?", 
-                placeholder="e.g., All B.Tech specializations with their annual fees, duration, and eligibility",
-                height=80
-            )
-        
-        if st.button("➕ Add This Heading", use_container_width=True):
-            if custom_heading_input.strip():
-                heading_id = f"custom_{len(st.session_state.custom_headings)}"
-                st.session_state.custom_headings.append({
-                    'id': heading_id,
-                    'query': custom_heading_input.strip(),
-                    'category': 'Custom',
-                    'content_type': content_type,
-                    'table_instruction': table_instruction if content_type == "Table Required" else ""
-                })
-                st.success(f"✓ Added: {custom_heading_input.strip()}")
-                st.rerun()
-    
-    # Display custom headings
-    if st.session_state.custom_headings:
-        st.markdown("---")
-        st.markdown("**Your Custom Headings:**")
-        for heading in st.session_state.custom_headings:
-            with st.container():
-                col1, col2, col3, col4 = st.columns([3, 1, 1, 0.5])
-                with col1:
-                    is_selected = heading['id'] in st.session_state.selected_custom_headings
-                    label = f"**{heading['query']}**"
-                    if heading.get('content_type'):
-                        label += f" [{heading['content_type']}]"
-                    if st.checkbox(label, value=is_selected, key=f"custom_{heading['id']}"):
-                        st.session_state.selected_custom_headings.add(heading['id'])
-                    else:
-                        st.session_state.selected_custom_headings.discard(heading['id'])
-                    
-                    if heading.get('table_instruction'):
-                        st.caption(f"📊 Table: {heading['table_instruction'][:60]}...")
-                
-                with col2:
-                    if heading['id'] in st.session_state.research_results:
-                        st.success("✓ Done")
-                    else:
-                        st.info("Pending")
-                
-                with col3:
-                    if st.button("✏️ Edit", key=f"edit_{heading['id']}", help="Edit this heading"):
-                        st.session_state[f'editing_{heading["id"]}'] = True
-                
-                with col4:
-                    if st.button("🗑️", key=f"del_{heading['id']}", help="Delete"):
-                        st.session_state.custom_headings = [h for h in st.session_state.custom_headings if h['id'] != heading['id']]
-                        st.session_state.selected_custom_headings.discard(heading['id'])
-                        st.rerun()
-                
-                # Edit mode
-                if st.session_state.get(f'editing_{heading["id"]}', False):
-                    with st.container():
-                        st.markdown("**Edit Heading:**")
-                        new_title = st.text_input("Title:", value=heading['query'], key=f"edit_title_{heading['id']}")
-                        new_content_type = st.selectbox("Content:", ["Table Required", "Bullet Points", "Paragraph Only"], 
-                                                       index=["Table Required", "Bullet Points", "Paragraph Only"].index(heading.get('content_type', 'Paragraph Only')),
-                                                       key=f"edit_type_{heading['id']}")
-                        new_instruction = ""
-                        if new_content_type == "Table Required":
-                            new_instruction = st.text_area("Table instruction:", value=heading.get('table_instruction', ''), 
-                                                          key=f"edit_instr_{heading['id']}")
-                        
-                        col_save, col_cancel = st.columns(2)
-                        with col_save:
-                            if st.button("💾 Save", key=f"save_{heading['id']}"):
-                                heading['query'] = new_title
-                                heading['content_type'] = new_content_type
-                                heading['table_instruction'] = new_instruction if new_content_type == "Table Required" else ""
-                                st.session_state[f'editing_{heading["id"]}'] = False
-                                st.rerun()
-                        with col_cancel:
-                            if st.button("❌ Cancel", key=f"cancel_{heading['id']}"):
-                                st.session_state[f'editing_{heading["id"]}'] = False
-                                st.rerun()
-                st.markdown("---")
-    
-    st.markdown("---")
-    st.subheader("Option 2: AI-Generated Research Queries")
+    st.subheader("AI-Generated Research Queries")
     
     col1, col2 = st.columns([3, 1])
     with col1:
-        topic = st.text_input("Topic:", placeholder="e.g., CMA certification")
+        topic = st.text_input("Topic:", placeholder="e.g., Adamas University BTech Fees")
         if topic: st.session_state.main_topic = topic
     with col2:
         mode = st.selectbox("Depth", ["AI Overview (simple)", "AI Mode (complex)"])
@@ -823,36 +728,117 @@ with tab1:
                 else:
                     st.error(error)
     
+    # Combined queries display (AI + Custom together)
     if st.session_state.fanout_results and 'queries' in st.session_state.fanout_results:
         st.markdown("---")
+        
+        # Add custom heading section at top
+        with st.expander("➕ Add Your Own Heading/Query", expanded=False):
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                custom_heading_input = st.text_input("Heading/Query:", placeholder="e.g., All B.Tech Courses and Fees", key="custom_input")
+            with col2:
+                content_type = st.selectbox("Content Type:", ["Table Required", "Bullet Points", "Paragraph Only"], key="custom_type")
+            
+            table_instruction = ""
+            if content_type == "Table Required":
+                table_instruction = st.text_area(
+                    "What should the table show?", 
+                    placeholder="e.g., All B.Tech specializations with annual fees, duration, eligibility",
+                    height=70,
+                    key="custom_table_instr"
+                )
+            
+            if st.button("➕ Add to Research Queries", use_container_width=True, type="secondary"):
+                if custom_heading_input.strip():
+                    heading_id = f"custom_{len(st.session_state.custom_headings)}"
+                    st.session_state.custom_headings.append({
+                        'id': heading_id,
+                        'query': custom_heading_input.strip(),
+                        'category': 'Custom',
+                        'content_type': content_type,
+                        'table_instruction': table_instruction if content_type == "Table Required" else ""
+                    })
+                    st.success(f"✓ Added: {custom_heading_input.strip()}")
+                    st.rerun()
+        
         queries = st.session_state.fanout_results['queries']
         
+        # Filter controls
         categories = sorted(list(set(q.get('category', 'Unknown') for q in queries)))
+        if st.session_state.custom_headings:
+            categories = ['Custom'] + categories
+        
         selected_cats = st.multiselect("Filter by Category:", categories, default=categories)
         filtered = [q for q in queries if q.get('category', 'Unknown') in selected_cats]
         
+        # Add custom headings to filtered list if Custom is selected
+        if 'Custom' in selected_cats:
+            for ch in st.session_state.custom_headings:
+                filtered.insert(0, ch)  # Add at top
+        
         # Batch Selection
-        filtered_ids = {f"q_{queries.index(q)}" for q in filtered}
-        all_selected = all(qid in st.session_state.selected_queries for qid in filtered_ids) if filtered_ids else False
+        all_ids = {f"q_{queries.index(q)}" if q not in st.session_state.custom_headings else q['id'] for q in filtered}
+        combined_selected = st.session_state.selected_queries.union(st.session_state.selected_custom_headings)
+        all_selected = all(qid in combined_selected for qid in all_ids) if all_ids else False
+        
         if st.checkbox("Select All Visible", value=all_selected):
-            st.session_state.selected_queries.update(filtered_ids)
-        else:
-            st.session_state.selected_queries.difference_update(filtered_ids)
-            
-        for q in filtered:
-            qid = f"q_{queries.index(q)}"
-            col1, col2 = st.columns([4, 1])
-            with col1:
-                is_selected = qid in st.session_state.selected_queries
-                if st.checkbox(f"**{q['query']}**", value=is_selected, key=f"cb_{qid}"):
+            for qid in all_ids:
+                if qid.startswith('custom_'):
+                    st.session_state.selected_custom_headings.add(qid)
+                else:
                     st.session_state.selected_queries.add(qid)
+        else:
+            for qid in all_ids:
+                if qid.startswith('custom_'):
+                    st.session_state.selected_custom_headings.discard(qid)
                 else:
                     st.session_state.selected_queries.discard(qid)
-            with col2:
-                if qid in st.session_state.research_results:
-                    st.success("✓ Done")
         
-        # Combined research button for both AI and custom queries
+        # Display all queries together
+        for item in filtered:
+            # Check if custom or AI-generated
+            if item in st.session_state.custom_headings:
+                # Custom heading
+                qid = item['id']
+                col1, col2, col3 = st.columns([4, 1, 0.5])
+                with col1:
+                    is_selected = qid in st.session_state.selected_custom_headings
+                    label = f"**{item['query']}** 🏷️ Custom"
+                    if item.get('content_type'):
+                        label += f" [{item['content_type']}]"
+                    if st.checkbox(label, value=is_selected, key=f"cb_{qid}"):
+                        st.session_state.selected_custom_headings.add(qid)
+                    else:
+                        st.session_state.selected_custom_headings.discard(qid)
+                    
+                    if item.get('table_instruction'):
+                        st.caption(f"📊 {item['table_instruction'][:80]}...")
+                
+                with col2:
+                    if qid in st.session_state.research_results:
+                        st.success("✓ Done")
+                
+                with col3:
+                    if st.button("🗑️", key=f"del_{qid}", help="Delete"):
+                        st.session_state.custom_headings = [h for h in st.session_state.custom_headings if h['id'] != qid]
+                        st.session_state.selected_custom_headings.discard(qid)
+                        st.rerun()
+            else:
+                # AI-generated query
+                qid = f"q_{queries.index(item)}"
+                col1, col2 = st.columns([4, 1])
+                with col1:
+                    is_selected = qid in st.session_state.selected_queries
+                    if st.checkbox(f"**{item['query']}**", value=is_selected, key=f"cb_{qid}"):
+                        st.session_state.selected_queries.add(qid)
+                    else:
+                        st.session_state.selected_queries.discard(qid)
+                with col2:
+                    if qid in st.session_state.research_results:
+                        st.success("✓ Done")
+        
+        # Combined research button
         st.markdown("---")
         all_selected = st.session_state.selected_queries.union(st.session_state.selected_custom_headings)
         if all_selected and perplexity_key:
@@ -864,39 +850,16 @@ with tab1:
                     for i, qid in enumerate(unresearched):
                         # Handle both AI-generated and custom queries
                         if qid.startswith('custom_'):
-                            # Custom heading
                             custom_h = next((h for h in st.session_state.custom_headings if h['id'] == qid), None)
                             if custom_h:
                                 q_text = custom_h['query']
+                                if custom_h.get('table_instruction'):
+                                    q_text = f"{q_text}. Specifically: {custom_h['table_instruction']}"
                         else:
-                            # AI-generated query
                             q_idx = int(qid.split('_')[1])
                             q_text = queries[q_idx]['query']
                         
-                        status.text(f"Researching: {q_text}...")
-                        
-                        res = call_perplexity(q_text)
-                        if res and 'choices' in res:
-                            st.session_state.research_results[qid] = {
-                                'query': q_text,
-                                'result': res['choices'][0]['message']['content']
-                            }
-                        progress_bar.progress((i + 1) / len(unresearched))
-                        time.sleep(1)  # Rate limiting
-                    st.success("Research Complete!")
-                    st.rerun()
-    elif st.session_state.selected_custom_headings and perplexity_key:
-        # Show research button even if only custom headings are selected
-        unresearched = [qid for qid in st.session_state.selected_custom_headings if qid not in st.session_state.research_results]
-        if unresearched:
-            if st.button(f"🔍 Research {len(unresearched)} Custom Headings", type="secondary", use_container_width=True):
-                progress_bar = st.progress(0)
-                status = st.empty()
-                for i, qid in enumerate(unresearched):
-                    custom_h = next((h for h in st.session_state.custom_headings if h['id'] == qid), None)
-                    if custom_h:
-                        q_text = custom_h['query']
-                        status.text(f"Researching: {q_text}...")
+                        status.text(f"Researching: {q_text[:80]}...")
                         
                         res = call_perplexity(q_text)
                         if res and 'choices' in res:
@@ -906,8 +869,54 @@ with tab1:
                             }
                         progress_bar.progress((i + 1) / len(unresearched))
                         time.sleep(1)
-                st.success("Research Complete!")
-                st.rerun()
+                    st.success("Research Complete!")
+                    st.rerun()
+    elif st.session_state.custom_headings:
+        # Show custom headings even if no AI queries generated
+        st.markdown("---")
+        st.markdown("**Your Custom Queries:**")
+        for heading in st.session_state.custom_headings:
+            col1, col2, col3 = st.columns([4, 1, 0.5])
+            with col1:
+                is_selected = heading['id'] in st.session_state.selected_custom_headings
+                label = f"**{heading['query']}** [{heading.get('content_type', 'N/A')}]"
+                if st.checkbox(label, value=is_selected, key=f"custom_{heading['id']}"):
+                    st.session_state.selected_custom_headings.add(heading['id'])
+                else:
+                    st.session_state.selected_custom_headings.discard(heading['id'])
+            with col2:
+                if heading['id'] in st.session_state.research_results:
+                    st.success("✓ Done")
+            with col3:
+                if st.button("🗑️", key=f"del_{heading['id']}", help="Delete"):
+                    st.session_state.custom_headings = [h for h in st.session_state.custom_headings if h['id'] != heading['id']]
+                    st.session_state.selected_custom_headings.discard(heading['id'])
+                    st.rerun()
+        
+        if st.session_state.selected_custom_headings and perplexity_key:
+            unresearched = [qid for qid in st.session_state.selected_custom_headings if qid not in st.session_state.research_results]
+            if unresearched:
+                if st.button(f"🔍 Research {len(unresearched)} Custom Queries", type="secondary", use_container_width=True):
+                    progress_bar = st.progress(0)
+                    status = st.empty()
+                    for i, qid in enumerate(unresearched):
+                        custom_h = next((h for h in st.session_state.custom_headings if h['id'] == qid), None)
+                        if custom_h:
+                            q_text = custom_h['query']
+                            if custom_h.get('table_instruction'):
+                                q_text = f"{q_text}. Specifically: {custom_h['table_instruction']}"
+                            status.text(f"Researching: {q_text[:80]}...")
+                            
+                            res = call_perplexity(q_text)
+                            if res and 'choices' in res:
+                                st.session_state.research_results[qid] = {
+                                    'query': q_text,
+                                    'result': res['choices'][0]['message']['content']
+                                }
+                            progress_bar.progress((i + 1) / len(unresearched))
+                            time.sleep(1)
+                    st.success("Research Complete!")
+                    st.rerun()
 
 with tab2:
     st.header("Target Settings & Keywords")
