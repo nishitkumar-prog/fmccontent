@@ -139,8 +139,8 @@ def generate_research_queries(topic, mode="AI Overview (simple)"):
     try:
         response = model.generate_content(prompt)
         json_text = response.text.strip()
-        if "```json" in json_text:
-            json_text = json_text.split("```json")[1].split("```")[0]
+        if "\`\`\`json" in json_text:
+            json_text = json_text.split("\`\`\`json")[1].split("\`\`\`")[0]
         return json.loads(json_text.strip()), None
     except Exception as e:
         return None, str(e)
@@ -310,7 +310,7 @@ def generate_outline_with_keywords(focus_keyword, target_country, keyword_data, 
     RESEARCH CONTEXT:
     {research_summary}
 
-    RETURN ONLY VALID JSON:
+    RETURN ONLY JSON:
     {{
       "article_title": "{focus_keyword}: Complete Guide {current_year}",
       "meta_description": "Detailed guide on {focus_keyword} with comprehensive data tables and structured information.",
@@ -333,8 +333,8 @@ def generate_outline_with_keywords(focus_keyword, target_country, keyword_data, 
     try:
         response = model.generate_content(prompt)
         json_text = response.text.strip()
-        if "```json" in json_text:
-            json_text = json_text.split("```json")[1].split("```")[0]
+        if "\`\`\`json" in json_text:
+            json_text = json_text.split("\`\`\`json")[1].split("\`\`\`")[0]
         return json.loads(json_text.strip()), None
     except Exception as e:
         return None, str(e)
@@ -558,8 +558,8 @@ Return ONLY valid JSON:
     
     if error: return None, error
     try:
-        if "```json" in response:
-            response = response.split("```json")[1].split("```")[0]
+        if "\`\`\`json" in response:
+            response = response.split("\`\`\`json")[1].split("\`\`\`")[0]
         return json.loads(response.strip()), None
     except:
         return None, "Parse error"
@@ -602,8 +602,8 @@ PAA Keywords (additional context):
     response, error = call_grok(messages, max_tokens=3000, temperature=0.5)
     if error: return None, error
     try:
-        if "```json" in response:
-            response = response.split("```json")[1].split("```")[0]
+        if "\`\`\`json" in response:
+            response = response.split("\`\`\`json")[1].split("\`\`\`")[0]
         return json.loads(response.strip()), None
     except:
         return None, "Parse error"
@@ -858,6 +858,8 @@ with tab1:
                     progress_bar = st.progress(0)
                     status = st.empty()
                     for i, qid in enumerate(unresearched):
+                        q_text = None
+                        
                         # Handle both AI-generated and custom queries
                         if qid.startswith('custom_'):
                             custom_h = next((h for h in st.session_state.custom_headings if h['id'] == qid), None)
@@ -866,17 +868,23 @@ with tab1:
                                 if custom_h.get('table_instruction'):
                                     q_text = f"{q_text}. Specifically: {custom_h['table_instruction']}"
                         else:
-                            q_idx = int(qid.split('_')[1])
-                            q_text = queries[q_idx]['query']
+                            try:
+                                q_idx = int(qid.split('_')[1])
+                                if 0 <= q_idx < len(queries):
+                                    q_text = queries[q_idx]['query']
+                            except (ValueError, IndexError):
+                                continue
                         
-                        status.text(f"Researching: {q_text[:80]}...")
+                        if q_text:
+                            status.text(f"Researching: {q_text[:80]}...")
+                            
+                            res = call_perplexity(q_text)
+                            if res and 'choices' in res:
+                                st.session_state.research_results[qid] = {
+                                    'query': q_text,
+                                    'result': res['choices'][0]['message']['content']
+                                }
                         
-                        res = call_perplexity(q_text)
-                        if res and 'choices' in res:
-                            st.session_state.research_results[qid] = {
-                                'query': q_text,
-                                'result': res['choices'][0]['message']['content']
-                            }
                         progress_bar.progress((i + 1) / len(unresearched))
                         time.sleep(1)
                     st.success("Research Complete!")
