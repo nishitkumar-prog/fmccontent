@@ -15,6 +15,7 @@ st.caption("Publication-ready articles with strict quality control")
 # --- SESSION STATE INITIALIZATION ---
 if 'research_results' not in st.session_state: st.session_state.research_results = {}
 if 'selected_queries' not in st.session_state: st.session_state.selected_queries = set()
+if 'fanout_results' not in st.session_state: st.session_state.fanout_results = None
 if 'content_outline' not in st.session_state: st.session_state.content_outline = None
 if 'paa_keywords' not in st.session_state: st.session_state.paa_keywords = []
 if 'keyword_planner_data' not in st.session_state: st.session_state.keyword_planner_data = None
@@ -25,6 +26,7 @@ if 'focus_keyword' not in st.session_state: st.session_state.focus_keyword = ""
 if 'target_country' not in st.session_state: st.session_state.target_country = "India"
 if 'latest_updates' not in st.session_state: st.session_state.latest_updates = []
 if 'custom_headings' not in st.session_state: st.session_state.custom_headings = []
+if 'selected_custom_headings' not in st.session_state: st.session_state.selected_custom_headings = set()
 if 'h2_headings' not in st.session_state: st.session_state.h2_headings = []
 
 # --- API CONFIGURATION SIDEBAR ---
@@ -56,6 +58,53 @@ else:
     model = None
 
 # --- UTILITY FUNCTIONS ---
+
+def generate_research_queries(topic, mode="AI Overview (simple)"):
+    """FANOUT: Generate research queries using Gemini"""
+    if not model: return None, "Gemini not configured"
+    
+    min_queries = 12 if mode == "AI Overview (simple)" else 25
+    
+    prompt = f"""Generate {min_queries}+ DEEP research queries for the topic: "{topic}"
+    Context Date: {formatted_date}
+    
+    QUERY QUALITY REQUIREMENTS:
+    - Ask for SPECIFIC, DETAILED information (not general overviews)
+    - Include queries that demand: exact data, complete information, step-by-step details
+    - Cover ALL major aspects of this topic:
+      * Definition and overview
+      * Key features or characteristics  
+      * Requirements or prerequisites
+      * Process or methodology
+      * Costs or pricing (if applicable)
+      * Benefits and outcomes
+      * Comparisons with alternatives
+      * Timeline or duration (if applicable)
+      * Latest updates or changes
+    
+    EXAMPLES OF GOOD QUERIES:
+    * "What are ALL the components/aspects of {topic} with complete details?"
+    * "What is the EXACT process/methodology for {topic} with step-by-step breakdown?"
+    * "What are the COMPLETE requirements or prerequisites for {topic}?"
+    
+    EXAMPLES OF BAD QUERIES:
+    * "Tell me about {topic}" (too general)
+    * "What is {topic}?" (too basic)
+    
+    DO NOT assume this is about fees/costs unless the topic explicitly mentions it.
+    Adapt questions to fit the topic domain naturally.
+    
+    Return ONLY valid JSON:
+    {{"queries": [{{"query": "specific detailed question", "category": "category", "priority": "high/medium/low", "purpose": "why this data is needed"}}]}}"""
+    
+    try:
+        response = model.generate_content(prompt)
+        json_text = response.text.strip()
+        if "```json" in json_text:
+            json_text = json_text.split("```json")[1].split("```")[0]
+        return json.loads(json_text.strip()), None
+    except Exception as e:
+        return None, str(e)
 
 def call_perplexity(query, system_prompt=None, max_retries=2):
     """Call Perplexity with deep research instructions"""
@@ -674,110 +723,247 @@ with tab2:
     
     st.success(f"📌 **{st.session_state.focus_keyword}** | {st.session_state.target_country}")
     
-    # Convert keywords to H2 headings
-    if st.session_state.keyword_planner_data and not st.session_state.h2_headings:
-        if st.button("🔄 Convert Keywords to H2 Headings", type="primary"):
-            st.session_state.h2_headings = []
-            for kw in st.session_state.keyword_planner_data[:15]:  # Top 15
-                st.session_state.h2_headings.append({
-                    'h2': kw['keyword'],
-                    'research_instruction': f"Find detailed data about {kw['keyword']} for {st.session_state.focus_keyword}",
-                    'needs_table': True,
-                    'content_type': 'Table Required'
-                })
-            st.success(f"✓ Created {len(st.session_state.h2_headings)} H2 headings")
-            st.rerun()
+    # FANOUT: Generate AI research queries
+    st.markdown("---")
+    st.subheader("🤖 AI-Generated Research Queries (Fanout)")
     
-    # Display and edit H2 headings
-    if st.session_state.h2_headings:
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.info("Generate comprehensive research queries using AI")
+    with col2:
+        mode = st.selectbox("Depth", ["AI Overview (simple)", "AI Mode (complex)"])
+    
+    if st.button("Generate Research Queries", type="primary", use_container_width=True):
+        if not gemini_key:
+            st.error("Gemini API Key required")
+        else:
+            with st.spinner("Generating queries..."):
+                result, error = generate_research_queries(st.session_state.focus_keyword, mode)
+                if result:
+                    st.session_state.fanout_results = result
+                    st.session_state.selected_queries = set()
+                    st.success(f"✓ Generated {len(result['queries'])} research queries")
+                    st.rerun()
+                else:
+                    st.error(f"Error: {error}")
+    
+    # Display fanout queries + custom headings + keyword headings together
+    if st.session_state.fanout_results and 'queries' in st.session_state.fanout_results:
+        queries = st.session_state.fanout_results['queries']
+        
         st.markdown("---")
-        st.subheader(f"📝 {len(st.session_state.h2_headings)} H2 Headings")
         
-        # Add manual heading
-        with st.expander("➕ Add Custom H2"):
-            new_h2 = st.text_input("H2 Heading:", placeholder="e.g., Top MBA Colleges")
-            research_inst = st.text_area("Research Instruction:", 
-                                        placeholder="What specific data should Perplexity collect?")
-            needs_table = st.checkbox("Needs Table", value=True)
-            
-            if st.button("Add H2") and new_h2:
-                st.session_state.h2_headings.append({
-                    'h2': new_h2,
-                    'research_instruction': research_inst,
-                    'needs_table': needs_table,
-                    'content_type': 'Table Required' if needs_table else 'Bullets'
-                })
-                st.success(f"✓ Added: {new_h2}")
-                st.rerun()
-        
-        # Display headings
-        for idx, h in enumerate(st.session_state.h2_headings):
-            col1, col2, col3 = st.columns([3, 1, 0.5])
+        # Section to add custom headings
+        with st.expander("➕ Add Your Own Heading/Query", expanded=False):
+            col1, col2 = st.columns([2, 1])
             with col1:
-                h2_id = f"h2_{idx}"
-                is_researched = h2_id in st.session_state.research_results
-                status = "✅" if is_researched else "⏳"
-                st.markdown(f"{status} **{h['h2']}** {'[Table]' if h.get('needs_table') else '[Bullets]'}")
-                if h.get('research_instruction'):
-                    st.caption(f"📋 {h['research_instruction'][:60]}...")
+                custom_heading_input = st.text_input("Heading/Query:", 
+                                                    placeholder="e.g., All B.Tech Courses and Fees")
             with col2:
-                pass
-            with col3:
-                if st.button("🗑️", key=f"del_{idx}"):
-                    st.session_state.h2_headings.pop(idx)
+                content_type = st.selectbox("Content Type:", 
+                                          ["Table Required", "Bullet Points", "Paragraph Only"])
+            
+            table_instruction = ""
+            if content_type == "Table Required":
+                table_instruction = st.text_area(
+                    "What should the table show?", 
+                    placeholder="e.g., All B.Tech specializations with annual fees, duration, eligibility",
+                    height=70
+                )
+            
+            if st.button("➕ Add Custom Heading", use_container_width=True, type="secondary"):
+                if custom_heading_input.strip():
+                    heading_id = f"custom_{len(st.session_state.custom_headings)}"
+                    st.session_state.custom_headings.append({
+                        'id': heading_id,
+                        'query': custom_heading_input.strip(),
+                        'category': 'Custom',
+                        'content_type': content_type,
+                        'table_instruction': table_instruction if content_type == "Table Required" else ""
+                    })
+                    st.success(f"✓ Added: {custom_heading_input.strip()}")
                     st.rerun()
         
-        # Research button
-        st.markdown("---")
-        unresearched = [f"h2_{i}" for i in range(len(st.session_state.h2_headings)) 
-                       if f"h2_{i}" not in st.session_state.research_results]
+        # Convert keywords to headings option
+        if st.session_state.keyword_planner_data:
+            with st.expander("🔄 Add Keywords as H2 Headings", expanded=False):
+                st.info(f"You have {len(st.session_state.keyword_planner_data)} keywords loaded")
+                num_kw = st.slider("How many keywords to add as H2s?", 5, 20, 10)
+                
+                if st.button("Add Keywords as Headings", type="secondary"):
+                    added = 0
+                    for kw_data in st.session_state.keyword_planner_data[:num_kw]:
+                        kw = kw_data['keyword']
+                        # Check if already added
+                        if not any(h['query'] == kw for h in st.session_state.custom_headings):
+                            heading_id = f"custom_kw_{len(st.session_state.custom_headings)}"
+                            st.session_state.custom_headings.append({
+                                'id': heading_id,
+                                'query': kw,
+                                'category': 'Keyword',
+                                'content_type': 'Table Required',
+                                'table_instruction': f"Detailed data table for {kw}"
+                            })
+                            added += 1
+                    st.success(f"✓ Added {added} keyword headings")
+                    st.rerun()
         
-        if unresearched and perplexity_key:
-            if st.button(f"🔍 Research All {len(unresearched)} Headings", type="primary", use_container_width=True):
-                progress = st.progress(0)
-                status_text = st.empty()
-                start_time = time.time()
-                
-                for i, h2_id in enumerate(unresearched):
-                    idx = int(h2_id.split('_')[1])
-                    heading = st.session_state.h2_headings[idx]
-                    
-                    # Estimate time remaining
-                    if i > 0:
-                        elapsed = time.time() - start_time
-                        avg_time = elapsed / i
-                        remaining = avg_time * (len(unresearched) - i)
-                        mins = int(remaining // 60)
-                        secs = int(remaining % 60)
-                        timer = f"⏱️ ~{mins}m {secs}s remaining"
+        # Filter and display all queries (AI + Custom)
+        categories = sorted(list(set(q.get('category', 'Unknown') for q in queries)))
+        if st.session_state.custom_headings:
+            categories = ['Custom', 'Keyword'] + [c for c in categories if c not in ['Custom', 'Keyword']]
+        
+        selected_cats = st.multiselect("Filter by Category:", categories, default=categories)
+        
+        # Combine all queries
+        all_items = []
+        
+        # Add custom headings first
+        if 'Custom' in selected_cats or 'Keyword' in selected_cats:
+            for ch in st.session_state.custom_headings:
+                if ch.get('category') in selected_cats:
+                    all_items.append(ch)
+        
+        # Add AI queries
+        for q in queries:
+            if q.get('category', 'Unknown') in selected_cats:
+                all_items.append(q)
+        
+        st.markdown(f"### 📋 {len(all_items)} Queries to Research")
+        
+        # Batch select
+        all_ids = set()
+        for item in all_items:
+            if item in st.session_state.custom_headings:
+                all_ids.add(item['id'])
+            else:
+                all_ids.add(f"q_{queries.index(item)}")
+        
+        combined_selected = st.session_state.selected_queries.union(st.session_state.selected_custom_headings)
+        all_selected_check = all(qid in combined_selected for qid in all_ids) if all_ids else False
+        
+        if st.checkbox("Select All Visible", value=all_selected_check):
+            for qid in all_ids:
+                if qid.startswith('custom_'):
+                    st.session_state.selected_custom_headings.add(qid)
+                else:
+                    st.session_state.selected_queries.add(qid)
+        else:
+            for qid in all_ids:
+                if qid.startswith('custom_'):
+                    st.session_state.selected_custom_headings.discard(qid)
+                else:
+                    st.session_state.selected_queries.discard(qid)
+        
+        # Display all items
+        for item in all_items:
+            if item in st.session_state.custom_headings:
+                # Custom/Keyword heading
+                qid = item['id']
+                col1, col2, col3 = st.columns([4, 1, 0.5])
+                with col1:
+                    is_selected = qid in st.session_state.selected_custom_headings
+                    label = f"**{item['query']}** 🏷️ {item.get('category', 'Custom')}"
+                    if item.get('content_type'):
+                        label += f" [{item['content_type']}]"
+                    if st.checkbox(label, value=is_selected, key=f"cb_{qid}"):
+                        st.session_state.selected_custom_headings.add(qid)
                     else:
-                        timer = "⏱️ Starting..."
+                        st.session_state.selected_custom_headings.discard(qid)
                     
-                    status_text.text(f"{timer} | Researching: {heading['h2'][:50]}...")
-                    
-                    # Build query with instruction
-                    query = heading.get('research_instruction', '') or heading['h2']
-                    query = f"{query}. Topic context: {st.session_state.focus_keyword}"
-                    
-                    res = call_perplexity(query)
-                    
-                    if res and 'choices' in res:
-                        st.session_state.research_results[h2_id] = {
-                            'query': heading['h2'],
-                            'result': res['choices'][0]['message']['content']
-                        }
-                    
-                    progress.progress((i + 1) / len(unresearched))
-                    time.sleep(1.5)
+                    if item.get('table_instruction'):
+                        st.caption(f"📊 {item['table_instruction'][:80]}...")
                 
-                elapsed_total = time.time() - start_time
-                mins_total = int(elapsed_total // 60)
-                secs_total = int(elapsed_total % 60)
+                with col2:
+                    if qid in st.session_state.research_results:
+                        st.success("✓ Done")
                 
-                st.success(f"✅ Research Complete in {mins_total}m {secs_total}s!")
-                st.rerun()
+                with col3:
+                    if st.button("🗑️", key=f"del_{qid}", help="Delete"):
+                        st.session_state.custom_headings = [h for h in st.session_state.custom_headings 
+                                                           if h['id'] != qid]
+                        st.session_state.selected_custom_headings.discard(qid)
+                        st.rerun()
+            else:
+                # AI-generated query
+                qid = f"q_{queries.index(item)}"
+                col1, col2 = st.columns([4, 1])
+                with col1:
+                    is_selected = qid in st.session_state.selected_queries
+                    if st.checkbox(f"**{item['query']}**", value=is_selected, key=f"cb_{qid}"):
+                        st.session_state.selected_queries.add(qid)
+                    else:
+                        st.session_state.selected_queries.discard(qid)
+                with col2:
+                    if qid in st.session_state.research_results:
+                        st.success("✓ Done")
+        
+        # Combined research button
+        st.markdown("---")
+        all_selected = st.session_state.selected_queries.union(st.session_state.selected_custom_headings)
+        
+        st.caption(f"Selected: {len(all_selected)} | Perplexity Key: {'✓' if perplexity_key else '✗'}")
+        
+        if all_selected and perplexity_key:
+            unresearched = [qid for qid in all_selected if qid not in st.session_state.research_results]
+            if unresearched:
+                if st.button(f"🔍 Research {len(unresearched)} Selected Queries", 
+                           type="primary", use_container_width=True):
+                    progress = st.progress(0)
+                    status = st.empty()
+                    start_time = time.time()
+                    
+                    for i, qid in enumerate(unresearched):
+                        # Timer
+                        if i > 0:
+                            elapsed = time.time() - start_time
+                            avg_time = elapsed / i
+                            remaining = avg_time * (len(unresearched) - i)
+                            mins = int(remaining // 60)
+                            secs = int(remaining % 60)
+                            timer = f"⏱️ ~{mins}m {secs}s remaining"
+                        else:
+                            timer = "⏱️ Starting..."
+                        
+                        # Get query text
+                        if qid.startswith('custom_'):
+                            custom_h = next((h for h in st.session_state.custom_headings 
+                                           if h['id'] == qid), None)
+                            if custom_h:
+                                q_text = custom_h['query']
+                                if custom_h.get('table_instruction'):
+                                    q_text = f"{q_text}. Specifically: {custom_h['table_instruction']}"
+                            else:
+                                continue
+                        else:
+                            q_idx = int(qid.split('_')[1])
+                            q_text = queries[q_idx]['query']
+                        
+                        status.text(f"{timer} | Researching: {q_text[:60]}...")
+                        
+                        res = call_perplexity(q_text)
+                        
+                        if res and 'choices' in res and len(res['choices']) > 0:
+                            st.session_state.research_results[qid] = {
+                                'query': q_text,
+                                'result': res['choices'][0]['message']['content']
+                            }
+                        
+                        progress.progress((i + 1) / len(unresearched))
+                        time.sleep(1.5)
+                    
+                    elapsed_total = time.time() - start_time
+                    mins_total = int(elapsed_total // 60)
+                    secs_total = int(elapsed_total % 60)
+                    
+                    st.success(f"✅ Research Complete in {mins_total}m {secs_total}s!")
+                    st.rerun()
+            else:
+                st.info("All selected queries already researched!")
         elif not perplexity_key:
-            st.error("⚠️ Add Perplexity API key")
+            st.error("⚠️ Add Perplexity API key in sidebar")
+        elif not all_selected:
+            st.info("Select queries above to research")
 
 with tab3:
     st.header("Step 3: Generate Content")
