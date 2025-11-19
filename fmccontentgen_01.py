@@ -320,37 +320,48 @@ def generate_section_content(heading, focus_keyword, target_country, research_co
     if not grok_key: return None, "Grok required"
     
     system_instruction = f"""
-You are a technical writer creating PRACTICAL, CONTEXTUAL, and EXTENSIVE content.
+You are a technical writer creating DIRECT, SIMPLE content.
 Context Date: {formatted_date} | Target: {target_country}
 
-CRITICAL CONTENT RULES:
-1. **BE PRACTICAL & CONTEXTUAL:**
-   - Ground every statement in real-world application
-   - Explain WHY information matters to the reader
-   - Provide context: how does this compare? what does this mean practically?
-   - Example: Don't just say "Fee is ₹15,000" - say "The registration fee is ₹15,000, which includes study materials and first exam attempt"
+CRITICAL WRITING RULES:
 
-2. **GO DEEP, NOT WIDE:**
-   - Cover fewer points but explain each thoroughly
-   - Provide complete context for every fact
-   - Include implications and practical consequences
-   - Example: "Eligibility requires a bachelor's degree in any discipline with 50% marks. This inclusive approach means both commerce and non-commerce students qualify, unlike CA which requires commerce background"
+1. **SHORT SENTENCES ONLY:**
+   - Maximum 15-20 words per sentence
+   - One idea per sentence
+   - Break complex thoughts into multiple short sentences
+   - ❌ BAD: "Navigating the financial aspects of higher education can significantly impact a student's decision to pursue a B.Tech program, and understanding these options is crucial."
+   - ✅ GOOD: "Financial planning affects your B.Tech admission decision. Scholarships reduce education costs significantly."
 
-3. **ACCURACY FIRST:**
-   - ONLY include information directly from research data
-   - Never invent examples, dates, or numbers
-   - If research lacks specific data, focus on what IS known
-   - Better to cover 3 points deeply than 10 points superficially
+2. **NO CONNECTOR PHRASES OR TRANSITIONS:**
+   - ❌ Remove: "Understanding these options is crucial as...", "This section will delve into...", "It is essential to...", "Additionally...", "Furthermore...", "Moreover...", "In addition to..."
+   - ❌ Remove: "Navigating...", "Delving into...", "Exploring..."
+   - ✅ Use: Direct statements only
 
-4. **DIRECT STYLE:**
-   - ❌ Avoid: "According to latest data", "As of {formatted_date}", "It's important to note"
-   - ✅ Use: Direct present tense statements with practical context
+3. **NO SUBHEADINGS OR INTERNAL STRUCTURE:**
+   - Do NOT create sections like "Introduction", "Core Content", "Practical Guidance"
+   - Write as ONE continuous flow of short sentences
+   - ONLY use the H2 heading provided - nothing else
 
-5. **STRUCTURE:**
-   - Paragraphs should be 4-6 sentences (not 2-3)
-   - Each paragraph should fully explore one aspect
-   - Connect ideas: show relationships between concepts
-   - NO HEADING REPETITION in opening line
+4. **BE DIRECT & FACTUAL:**
+   - Start immediately with facts
+   - No philosophical or abstract statements
+   - No "can", "might", "should" - use "is", "are", "has"
+   - State facts in present tense
+
+5. **NO FLIMSY LANGUAGE:**
+   - ❌ Remove: "significantly impact", "crucial to understand", "it's important to note"
+   - ❌ Remove: "comprehensive overview", "delve into specifics", "underscores commitment"
+   - ✅ Use: Specific facts and numbers only
+
+6. **PARAGRAPH LENGTH:**
+   - 4-6 short sentences per paragraph
+   - White space between paragraphs for readability
+   - Each paragraph = one main topic
+
+7. **READABILITY:**
+   - Write at 8th-grade reading level
+   - Use common words, not academic jargon
+   - If technical terms needed, define them immediately
 """
 
     if is_first_section and latest_updates:
@@ -358,73 +369,66 @@ CRITICAL CONTENT RULES:
         prompt = f"""
 {system_instruction}
 
-TASK: Write COMPREHENSIVE opening section for "{focus_keyword}"
+TASK: Write opening content for "{focus_keyword}"
 
-LATEST UPDATES (include these at the very top as bullet points):
+LATEST UPDATES (show these as bullet points at the very top):
 {updates_text}
 
-Then write 3-4 SUBSTANTIAL paragraphs that:
-1. **Define & Contextualize**: What exactly is {focus_keyword}? Who issues/governs it? Why does it matter?
-2. **Target Audience**: Who should pursue this? What specific benefits do they gain?
-3. **Key Requirements Overview**: Briefly mention main prerequisites (detailed section will follow)
-4. **Current Relevance**: Why is this particularly important in {target_country} right now?
+Then write 3-4 paragraphs (each 4-6 SHORT sentences):
+- What {focus_keyword} is (one sentence definition)
+- Who issues/governs it
+- Main requirements or eligibility
+- Key benefits or outcomes
+- Why it matters in {target_country}
 
-DEPTH REQUIREMENTS:
-- Each paragraph should be 4-6 sentences
-- Include specific facts from research (numbers, institutions, timeframes)
-- Provide practical context for every major point
-- Connect concepts: show relationships and implications
+CRITICAL:
+- NO subheadings like "Introduction", "Overview" etc.
+- NO connector phrases
+- Every sentence = max 15-20 words
+- Direct facts only
 
 RESEARCH DATA:
 {research_context[:2500]}
 
-Write extensively but stay focused. Make every sentence count.
+Write directly and simply.
 """
     else:
         table_hint = ""
         if heading.get('needs_table'):
-            table_hint = f"\n\nIMPORTANT: A comprehensive data table will follow this content showing {heading.get('table_purpose', 'detailed information')}. Your content should INTRODUCE and CONTEXTUALIZE the data - explain what the table will show and WHY it matters. After the table concept, provide IMPLICATIONS and PRACTICAL ADVICE."
+            table_hint = f"\n\nNote: Write the content to introduce what the data is. A table with detailed breakdown will appear after your text. Do not explain the table - just provide context."
         
         prompt = f"""
 {system_instruction}
 
-TASK: Write EXTENSIVE, PRACTICAL content for: "{heading['h2_title']}"
-Focus Area: {heading.get('content_focus', 'Technical details')}
+TASK: Write content for: "{heading['h2_title']}"
+Focus: {heading.get('content_focus', 'Technical details')}
 {table_hint}
 
-STRUCTURE YOUR RESPONSE:
-1. **Introduction (1 paragraph)**: Set context - why does this aspect matter? What will this section cover?
+Write 3-4 paragraphs using SHORT SENTENCES (max 15-20 words each):
+- State the main facts directly
+- Include specific numbers, amounts, dates
+- Explain what things mean practically
+- No filler, no transitions, no connectors
 
-2. **Core Content (2-3 paragraphs)**: Deep dive into specifics
-   - Include ALL relevant details from research
-   - Provide practical context for each point
-   - Explain implications and consequences
-   - Show relationships between different aspects
-
-3. **Practical Guidance (1 paragraph)**: If applicable, provide actionable insights
-   - What should readers specifically do or know?
-   - Common mistakes to avoid
-   - Best practices or recommendations
-
-CONTENT DEPTH REQUIREMENTS:
-- If discussing FEES: Break down every component, explain what each covers, mention payment options, discuss refund policies
-- If discussing ELIGIBILITY: List every requirement with exact specs, explain WHY each requirement exists, discuss exceptions or alternatives
-- If discussing PROCESS: Detail every step with specific timelines, explain what happens at each stage, mention common delays or issues
-- If discussing SYLLABUS: Cover topics with weightage, explain difficulty levels, mention how topics connect
-- If discussing CAREER/SALARY: Provide specific ranges, factors affecting compensation, career progression paths, market demand
+CONTENT REQUIREMENTS:
+- If FEES: Break down components, state exact amounts, mention what's included
+- If ELIGIBILITY: List requirements with specific criteria, mention alternatives
+- If PROCESS: List steps with timelines, mention documents needed
+- If SYLLABUS: List topics with marks/weightage, mention difficulty
+- If CAREER: State salary ranges, job roles, growth potential
 
 CRITICAL:
-- Write 3-4 substantial paragraphs (4-6 sentences each)
-- Every fact must be grounded in the research data provided
-- Provide context and practical implications for all data points
-- NO generic advice - be specific to {focus_keyword} in {target_country}
+- NO subheadings
+- NO phrases like "It's important to", "One should note", "Additionally"
+- Just direct facts in short sentences
+- Write for 8th-grade reading level
 
 RESEARCH DATA:
 {research_context[:2500]}
 """
     
     messages = [{"role": "user", "content": prompt}]
-    content, error = call_grok(messages, max_tokens=1200, temperature=0.3)
+    content, error = call_grok(messages, max_tokens=1000, temperature=0.3)
     return content, error
 
 def generate_intelligent_table(heading, target_country, research_context):
@@ -566,8 +570,8 @@ def export_to_html(article_title, meta_description, sections, faqs, latest_updat
     # Add latest updates if available
     if latest_updates:
         html.append('<div style="background-color: #fff3cd; padding: 15px; margin: 20px 0; border-left: 4px solid #ffc107;">')
-        html.append('<h3 style="margin-top: 0;">Latest Updates:</h3>')
-        html.append('<ul style="margin-bottom: 0;">')
+        html.append('<strong>Latest Updates:</strong>')
+        html.append('<ul style="margin: 10px 0 0 0;">')
         for update in latest_updates:
             html.append(f'<li>{update}</li>')
         html.append('</ul>')
@@ -576,11 +580,17 @@ def export_to_html(article_title, meta_description, sections, faqs, latest_updat
     html.append('')
     
     for section in sections:
+        # Only add H2 - no other headings
         html.append(f'<h2>{section["heading"]["h2_title"]}</h2>')
         
         if section.get('content'):
             content = section['content']
-            # Remove any leading bullet points from content (updates handled separately)
+            
+            # Remove any subheadings the LLM might have added
+            content = re.sub(r'^#+\s+.*$', '', content, flags=re.MULTILINE)
+            content = re.sub(r'\*\*Introduction\*\*|\*\*Core Content\*\*|\*\*Practical Guidance\*\*', '', content, flags=re.IGNORECASE)
+            
+            # Remove leading bullet points from content (updates handled separately)
             content = re.sub(r'^[•\-\*]\s+.*\n', '', content, flags=re.MULTILINE)
             
             blocks = content.split('\n\n')
@@ -605,7 +615,7 @@ def export_to_html(article_title, meta_description, sections, faqs, latest_updat
         
         if section.get('table'):
             table = section['table']
-            html.append(f'<h3>{table.get("table_title", "Data Table")}</h3>')
+            html.append(f'<h3 style="font-size: 1.1em; margin-top: 20px;">{table.get("table_title", "Data Table")}</h3>')
             html.append('<table border="1" style="border-collapse: collapse; width: 100%; margin: 20px 0;">')
             
             headers = table.get('headers', [])
@@ -631,14 +641,14 @@ def export_to_html(article_title, meta_description, sections, faqs, latest_updat
             html.append('</table>')
             
             if table.get('footer_note'):
-                html.append(f'<p style="font-size: 0.9em; color: #666; font-style: italic;">{table["footer_note"]}</p>')
+                html.append(f'<p style="font-size: 0.9em; color: #666; font-style: italic; margin-top: 5px;">{table["footer_note"]}</p>')
         
         html.append('')
     
     if faqs:
-        html.append('<h2>Frequently Asked Questions (FAQs)</h2>')
+        html.append('<h2>Frequently Asked Questions</h2>')
         for faq in faqs:
-            html.append(f'<h3>{faq["question"]}</h3>')
+            html.append(f'<h3 style="font-size: 1.05em; margin-top: 15px;">{faq["question"]}</h3>')
             html.append(f'<p>{faq["answer"]}</p>')
     
     return '\n'.join(html)
