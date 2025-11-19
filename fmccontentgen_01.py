@@ -143,33 +143,72 @@ def generate_research_queries(topic, mode="AI Overview (simple)"):
     except Exception as e:
         return None, str(e)
 
-def parse_keyword_planner_csv(df):
-    """Parse Google Keyword Planner CSV and extract relevant keywords"""
+def parse_keyword_planner_csv(file_path):
+    """Parse Google Keyword Planner CSV with multiple encoding support"""
     keywords = []
+    df = None
+    
+    # Try different encodings commonly used by Google Keyword Planner
+    encodings = ['utf-8-sig', 'utf-16', 'utf-16-le', 'utf-16-be', 'latin-1', 'cp1252', 'iso-8859-1']
+    
+    for encoding in encodings:
+        try:
+            df = pd.read_csv(file_path, encoding=encoding)
+            break  # Success, exit loop
+        except (UnicodeDecodeError, UnicodeError):
+            continue
+        except Exception as e:
+            continue
+    
+    if df is None:
+        # Last resort: try with error handling
+        try:
+            df = pd.read_csv(file_path, encoding='utf-8', errors='ignore')
+        except:
+            try:
+                df = pd.read_csv(file_path, encoding='latin-1', errors='ignore')
+            except:
+                return None, "Unable to read file with any encoding"
     
     # Common column names in Google Keyword Planner exports
     keyword_col = None
     search_vol_col = None
     
+    # Look for keyword column (case-insensitive)
     for col in df.columns:
-        col_lower = col.lower()
-        if 'keyword' in col_lower and keyword_col is None:
+        col_lower = str(col).lower().strip()
+        if keyword_col is None and any(term in col_lower for term in ['keyword', 'query', 'search term']):
             keyword_col = col
-        elif 'avg' in col_lower and 'search' in col_lower:
+        elif search_vol_col is None and any(term in col_lower for term in ['avg', 'average', 'monthly', 'searches', 'volume']):
             search_vol_col = col
+    
+    if not keyword_col:
+        # If no keyword column found, use first column
+        keyword_col = df.columns[0]
     
     if keyword_col:
         for idx, row in df.iterrows():
-            kw = str(row[keyword_col]).strip()
-            if kw and kw != 'nan' and len(kw) > 2:
-                search_vol = row[search_vol_col] if search_vol_col else 0
-                keywords.append({
-                    'keyword': kw,
-                    'search_volume': search_vol,
-                    'suitable_for_heading': True
-                })
+            try:
+                kw = str(row[keyword_col]).strip()
+                if kw and kw.lower() not in ['nan', 'none', ''] and len(kw) > 2:
+                    # Try to get search volume
+                    search_vol = 0
+                    if search_vol_col and search_vol_col in row:
+                        try:
+                            vol_str = str(row[search_vol_col]).replace(',', '').replace('-', '0')
+                            search_vol = int(float(vol_str)) if vol_str.replace('.','').isdigit() else 0
+                        except:
+                            search_vol = 0
+                    
+                    keywords.append({
+                        'keyword': kw,
+                        'search_volume': search_vol,
+                        'suitable_for_heading': True
+                    })
+            except:
+                continue
     
-    return keywords
+    return keywords, None
 
 def get_latest_news_updates(focus_keyword, target_country, days_back=15):
     """Fetch latest news/updates from last X days"""
@@ -705,17 +744,32 @@ with tab2:
         keyword_planner_file = st.file_uploader("Upload Google Keyword Planner CSV", type=['csv'], key='kp')
         if keyword_planner_file:
             try:
-                df = pd.read_csv(keyword_planner_file)
-                keywords = parse_keyword_planner_csv(df)
-                st.session_state.keyword_planner_data = keywords
-                st.success(f"✓ Loaded {len(keywords)} keywords for headings")
+                # Save uploaded file temporarily
+                import tempfile
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as tmp_file:
+                    tmp_file.write(keyword_planner_file.getvalue())
+                    tmp_path = tmp_file.name
                 
-                # Show preview
-                with st.expander("Preview Keywords"):
-                    preview_df = pd.DataFrame(keywords[:20])
-                    st.dataframe(preview_df, hide_index=True)
+                keywords, error = parse_keyword_planner_csv(tmp_path)
+                
+                # Clean up temp file
+                import os
+                os.unlink(tmp_path)
+                
+                if error:
+                    st.error(f"Error parsing file: {error}")
+                elif keywords:
+                    st.session_state.keyword_planner_data = keywords
+                    st.success(f"✓ Loaded {len(keywords)} keywords for headings")
+                    
+                    # Show preview
+                    with st.expander("Preview Keywords"):
+                        preview_df = pd.DataFrame(keywords[:20])
+                        st.dataframe(preview_df, hide_index=True)
+                else:
+                    st.warning("No keywords found in file. Please check the file format.")
             except Exception as e:
-                st.error(f"Error parsing file: {e}")
+                st.error(f"Error processing file: {str(e)}")
     
     with col2:
         st.markdown("**People Also Ask (PAA)** (For FAQs)")
