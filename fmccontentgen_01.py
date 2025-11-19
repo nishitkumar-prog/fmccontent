@@ -61,7 +61,19 @@ def call_perplexity(query, system_prompt=None, max_retries=2):
     if not perplexity_key: return {"error": "Missing API key"}
     
     if not system_prompt:
-        system_prompt = f"Current Date: {formatted_date}. Provide factual data with specific numbers, dates, and examples. Be direct."
+        system_prompt = f"""Current Date: {formatted_date}
+        
+CRITICAL INSTRUCTIONS:
+- Provide DEEP, COMPREHENSIVE data - not surface-level summaries
+- Include ALL specific numbers, exact amounts, precise dates
+- List complete breakdowns (all fee components, all eligibility criteria, all steps)
+- Include source citations where possible
+- Provide context: WHY these numbers matter, HOW they compare
+- If discussing fees: break down EVERY component (application, exam, membership, renewal)
+- If discussing eligibility: list EVERY requirement with exact specifications
+- If discussing process: detail EVERY step with timelines
+- Be ACCURATE - verify facts, don't approximate
+- Go DEEP - provide expert-level detail, not beginner overviews"""
     
     headers = {"Authorization": f"Bearer {perplexity_key}", "Content-Type": "application/json"}
     data = {
@@ -104,10 +116,24 @@ def call_grok(messages, max_tokens=4000, temperature=0.6):
 def generate_research_queries(topic, mode="AI Overview (simple)"):
     if not model: return None, "Gemini not configured"
     min_queries = 12 if mode == "AI Overview (simple)" else 25
-    prompt = f"""Generate {min_queries}+ research queries for: "{topic}"
+    prompt = f"""Generate {min_queries}+ DEEP research queries for: "{topic}"
     Context Date: {formatted_date}
+    
+    QUERY QUALITY REQUIREMENTS:
+    - Ask for SPECIFIC, DETAILED information (not general overviews)
+    - Include queries that demand: exact numbers, complete breakdowns, step-by-step processes
+    - Examples of GOOD queries:
+      * "What are ALL fee components for {topic} including application, exam, membership, and renewal costs?"
+      * "What are the EXACT eligibility criteria with specific degree requirements and work experience details?"
+      * "What is the COMPLETE step-by-step process with timeline for each phase?"
+    - Examples of BAD queries:
+      * "Tell me about {topic}" (too general)
+      * "What is {topic}?" (too basic)
+    
+    Categories should include: Fees, Eligibility, Process, Syllabus, Career, Comparison, Timeline, Requirements
+    
     Return ONLY valid JSON:
-    {{"queries": [{{"query": "question", "category": "category", "priority": "high/medium/low", "purpose": "purpose"}}]}}"""
+    {{"queries": [{{"query": "specific detailed question", "category": "category", "priority": "high/medium/low", "purpose": "why this data is needed"}}]}}"""
     try:
         response = model.generate_content(prompt)
         json_text = response.text.strip()
@@ -255,24 +281,37 @@ def generate_section_content(heading, focus_keyword, target_country, research_co
     if not grok_key: return None, "Grok required"
     
     system_instruction = f"""
-You are a technical writer creating clear, direct content.
+You are a technical writer creating PRACTICAL, CONTEXTUAL, and EXTENSIVE content.
 Context Date: {formatted_date} | Target: {target_country}
 
-STYLE RULES:
-1. **DIRECT STATEMENTS:** State facts in present tense without attribution phrases
-   - ❌ Avoid: "According to latest data", "As of {formatted_date}", "It has been reported"
-   - ✅ Use: "The registration fee is ₹15,000", "Eligibility requires a bachelor's degree"
+CRITICAL CONTENT RULES:
+1. **BE PRACTICAL & CONTEXTUAL:**
+   - Ground every statement in real-world application
+   - Explain WHY information matters to the reader
+   - Provide context: how does this compare? what does this mean practically?
+   - Example: Don't just say "Fee is ₹15,000" - say "The registration fee is ₹15,000, which includes study materials and first exam attempt"
 
-2. **NO FILLER LANGUAGE:**
-   - ❌ Skip: "It's important to note", "One should consider", "Generally speaking"
-   - ✅ Use: Direct facts and specific details
+2. **GO DEEP, NOT WIDE:**
+   - Cover fewer points but explain each thoroughly
+   - Provide complete context for every fact
+   - Include implications and practical consequences
+   - Example: "Eligibility requires a bachelor's degree in any discipline with 50% marks. This inclusive approach means both commerce and non-commerce students qualify, unlike CA which requires commerce background"
 
-3. **SIMPLE STRUCTURE:**
-   - Short paragraphs (3-4 sentences max)
-   - One main point per paragraph
-   - Use specific numbers, dates, amounts
+3. **ACCURACY FIRST:**
+   - ONLY include information directly from research data
+   - Never invent examples, dates, or numbers
+   - If research lacks specific data, focus on what IS known
+   - Better to cover 3 points deeply than 10 points superficially
 
-4. **NO HEADING REPETITION:** Don't start content with the heading text
+4. **DIRECT STYLE:**
+   - ❌ Avoid: "According to latest data", "As of {formatted_date}", "It's important to note"
+   - ✅ Use: Direct present tense statements with practical context
+
+5. **STRUCTURE:**
+   - Paragraphs should be 4-6 sentences (not 2-3)
+   - Each paragraph should fully explore one aspect
+   - Connect ideas: show relationships between concepts
+   - NO HEADING REPETITION in opening line
 """
 
     if is_first_section and latest_updates:
@@ -280,50 +319,73 @@ STYLE RULES:
         prompt = f"""
 {system_instruction}
 
-TASK: Write opening section for "{focus_keyword}"
+TASK: Write COMPREHENSIVE opening section for "{focus_keyword}"
 
 LATEST UPDATES (include these at the very top as bullet points):
 {updates_text}
 
-Then write 2-3 paragraphs introducing the topic with:
-- What it is and who issues/governs it
-- Primary requirements or qualifications
-- Main benefits or outcomes
+Then write 3-4 SUBSTANTIAL paragraphs that:
+1. **Define & Contextualize**: What exactly is {focus_keyword}? Who issues/governs it? Why does it matter?
+2. **Target Audience**: Who should pursue this? What specific benefits do they gain?
+3. **Key Requirements Overview**: Briefly mention main prerequisites (detailed section will follow)
+4. **Current Relevance**: Why is this particularly important in {target_country} right now?
 
-RESEARCH: {research_context[:2000]}
+DEPTH REQUIREMENTS:
+- Each paragraph should be 4-6 sentences
+- Include specific facts from research (numbers, institutions, timeframes)
+- Provide practical context for every major point
+- Connect concepts: show relationships and implications
 
-Format:
-[Latest updates as bullets if provided]
+RESEARCH DATA:
+{research_context[:2500]}
 
-[Introduction paragraph 1]
-
-[Introduction paragraph 2]
+Write extensively but stay focused. Make every sentence count.
 """
     else:
         table_hint = ""
         if heading.get('needs_table'):
-            table_hint = f"\nNote: A data table will follow this content showing {heading.get('table_purpose', 'detailed information')}. Keep content concise - table will have the details."
+            table_hint = f"\n\nIMPORTANT: A comprehensive data table will follow this content showing {heading.get('table_purpose', 'detailed information')}. Your content should INTRODUCE and CONTEXTUALIZE the data - explain what the table will show and WHY it matters. After the table concept, provide IMPLICATIONS and PRACTICAL ADVICE."
         
         prompt = f"""
 {system_instruction}
 
-TASK: Write content for: "{heading['h2_title']}"
-Focus: {heading.get('content_focus', 'Technical details')}
+TASK: Write EXTENSIVE, PRACTICAL content for: "{heading['h2_title']}"
+Focus Area: {heading.get('content_focus', 'Technical details')}
 {table_hint}
 
-REQUIREMENTS:
-- Write 2-3 short paragraphs
-- Include specific facts, numbers, dates
-- No generic advice or soft skills
-- If discussing fees: mention exact amounts
-- If discussing eligibility: specify degree types and experience years
-- If discussing process: list clear steps
+STRUCTURE YOUR RESPONSE:
+1. **Introduction (1 paragraph)**: Set context - why does this aspect matter? What will this section cover?
 
-RESEARCH: {research_context[:2000]}
+2. **Core Content (2-3 paragraphs)**: Deep dive into specifics
+   - Include ALL relevant details from research
+   - Provide practical context for each point
+   - Explain implications and consequences
+   - Show relationships between different aspects
+
+3. **Practical Guidance (1 paragraph)**: If applicable, provide actionable insights
+   - What should readers specifically do or know?
+   - Common mistakes to avoid
+   - Best practices or recommendations
+
+CONTENT DEPTH REQUIREMENTS:
+- If discussing FEES: Break down every component, explain what each covers, mention payment options, discuss refund policies
+- If discussing ELIGIBILITY: List every requirement with exact specs, explain WHY each requirement exists, discuss exceptions or alternatives
+- If discussing PROCESS: Detail every step with specific timelines, explain what happens at each stage, mention common delays or issues
+- If discussing SYLLABUS: Cover topics with weightage, explain difficulty levels, mention how topics connect
+- If discussing CAREER/SALARY: Provide specific ranges, factors affecting compensation, career progression paths, market demand
+
+CRITICAL:
+- Write 3-4 substantial paragraphs (4-6 sentences each)
+- Every fact must be grounded in the research data provided
+- Provide context and practical implications for all data points
+- NO generic advice - be specific to {focus_keyword} in {target_country}
+
+RESEARCH DATA:
+{research_context[:2500]}
 """
     
     messages = [{"role": "user", "content": prompt}]
-    content, error = call_grok(messages, max_tokens=800, temperature=0.3)
+    content, error = call_grok(messages, max_tokens=1200, temperature=0.3)
     return content, error
 
 def generate_intelligent_table(heading, target_country, research_context):
@@ -333,50 +395,92 @@ def generate_intelligent_table(heading, target_country, research_context):
     table_type = heading.get('table_type', 'general')
     
     prompt = f"""
-TASK: Create a comprehensive data table for "{heading['h2_title']}"
+TASK: Create a COMPREHENSIVE, PRECISE data table for "{heading['h2_title']}"
 Context: {target_country} | Date: {formatted_date}
 Table Type: {table_type}
 
 RESEARCH DATA:
-{research_context[:2500]}
+{research_context[:3000]}
 
-TABLE DESIGN RULES:
-1. **CHOOSE APPROPRIATE FORMAT:**
-   - Fees/Costs: Columns like [Fee Type, Amount, Validity, Conditions]
-   - Timeline/Deadlines: [Phase/Event, Date/Month, Duration, Notes]
-   - Comparison: [Feature, Option 1, Option 2, Option 3]
-   - Requirements: [Requirement Type, Details, Mandatory/Optional, Alternatives]
-   - Syllabus/Topics: [Section, Topics Covered, Weightage %, Key Focus Areas]
+CRITICAL TABLE GENERATION RULES:
 
-2. **COMPLETENESS:**
-   - Include ALL relevant data points from research
-   - Minimum 5 rows (unless impossible)
-   - Add totals/summaries where relevant
+1. **PRECISION & ACCURACY FIRST:**
+   - ONLY include data that is EXPLICITLY mentioned in the research data
+   - NEVER invent or assume data points
+   - If research lacks specific information, DO NOT include that row/column
+   - Every number, date, amount must be traceable to research data
+   - Better to have 3 accurate rows than 10 rows with guessed data
 
-3. **CLARITY:**
-   - Use clear column headers
-   - Put units in headers (₹, $, %, months)
-   - Keep cell content concise but complete
-   - Use "N/A" only when truly not applicable
+2. **BE EXTENSIVE WITHIN BOUNDS:**
+   - Include EVERY data point available in research
+   - Break down complex information into granular rows
+   - Example: Don't just say "Exam Fee: ₹10,000" - break it into "Part 1 Fee", "Part 2 Fee", "Retake Fee" if research provides this
+   - Aim for comprehensive coverage but ONLY from actual research data
 
-4. **RECENCY:**
-   - Mark outdated information
-   - If deadline passed vs {formatted_date}, note "Closed" or "Upcoming"
+3. **CONTEXTUAL & PRACTICAL:**
+   - Add a "Notes/Context" column to explain what data means practically
+   - Include validity periods, conditions, prerequisites
+   - Show relationships: "Required before Part 2" or "One-time only"
+   - Make table actionable - readers should understand HOW to use this information
+
+4. **CHOOSE APPROPRIATE FORMAT BASED ON CONTENT:**
+   
+   For FEES/COSTS:
+   - Columns: [Fee Component, Amount ({target_country} Currency), Validity/When Payable, Refund Policy/Notes]
+   - Break down into: Application, Entrance, Each Exam Part, Membership, Annual, Re-examination
+   
+   For TIMELINE/DEADLINES:
+   - Columns: [Phase/Event, Date/Timeline, Duration, Prerequisites/Next Steps]
+   - Include: Registration windows, exam dates, result dates, validity periods
+   
+   For COMPARISONS:
+   - Columns: [Aspect/Feature, Option 1, Option 2, Key Difference/Recommendation]
+   - Compare meaningfully: qualifications, career paths, institutions
+   
+   For REQUIREMENTS/ELIGIBILITY:
+   - Columns: [Requirement Type, Specific Criteria, Mandatory/Optional, Acceptable Alternatives]
+   - Break by: Education, Experience, Other qualifications, Documents
+   
+   For SYLLABUS/TOPICS:
+   - Columns: [Section/Paper, Topics Covered, Weightage/Marks, Difficulty Level/Focus Areas]
+   - Detail each subject/paper separately
+
+5. **COMPLETENESS CHECK:**
+   - For fees: Have you included ALL fee components mentioned in research?
+   - For eligibility: Have you listed ALL criteria from research?
+   - For process: Have you covered ALL steps mentioned?
+   - Minimum 5 rows ONLY if research data supports it
+   - If research only provides 3 data points, create 3 excellent rows
+
+6. **FORMATTING:**
+   - Use clear, specific headers
+   - Include units in headers (₹, $, %, months, years)
+   - Keep cells concise but complete
+   - Use "N/A" sparingly - only when truly not applicable
+   - Add footer note for data source date or important caveats
+
+7. **RECENCY & RELEVANCE:**
+   - Mark outdated information clearly
+   - If deadline has passed relative to {formatted_date}, note "Closed" or show next occurrence
+   - Prioritize current/upcoming information over historical
+
+QUALITY OVER QUANTITY:
+A table with 4 accurate, well-contextualized rows is FAR BETTER than a table with 8 rows containing vague or invented data.
 
 Return ONLY valid JSON:
 {{
-  "table_title": "Descriptive Title Explaining What Data Shows",
-  "headers": ["Column 1 Name", "Column 2 Name", "Column 3 Name"],
+  "table_title": "Specific, Descriptive Title (e.g., 'CMA Exam Fee Breakdown 2025')",
+  "headers": ["Column 1", "Column 2", "Column 3", "Column 4"],
   "rows": [
-      ["Data 1A", "Data 1B", "Data 1C"],
-      ["Data 2A", "Data 2B", "Data 2C"]
+      ["Precise Data 1A", "Precise Data 1B", "Context 1C", "Notes 1D"],
+      ["Precise Data 2A", "Precise Data 2B", "Context 2C", "Notes 2D"]
   ],
-  "footer_note": "Optional note about data source or important caveat"
+  "footer_note": "Source date, important caveat, or clarification about the data"
 }}
 """
     
     messages = [{"role": "user", "content": prompt}]
-    response, error = call_grok(messages, max_tokens=1200, temperature=0.2)
+    response, error = call_grok(messages, max_tokens=1500, temperature=0.2)
     
     if error: return None, error
     try:
