@@ -87,20 +87,35 @@ CRITICAL INSTRUCTIONS:
         try:
             response = requests.post("https://api.perplexity.ai/chat/completions", headers=headers, json=data, timeout=45)
             response.raise_for_status()
+            
+            if not response.text or len(response.text.strip()) == 0:
+                if attempt < max_retries - 1:
+                    time.sleep(2)
+                    continue
+                return {"error": "Empty response from API"}
+            
             try:
                 result = response.json()
-            except json.JSONDecodeError:
-                return {"error": "Invalid JSON response from API"}
+            except json.JSONDecodeError as e:
+                if attempt < max_retries - 1:
+                    time.sleep(2)
+                    continue
+                return {"error": f"Invalid JSON response: {str(e)}"}
                 
             if 'choices' in result and len(result['choices']) > 0:
                 return result
-            return {"error": "Invalid response"}
-        except:
+            
             if attempt < max_retries - 1:
                 time.sleep(2)
                 continue
-            return {"error": "Failed"}
-    return {"error": "Max retries"}
+            return {"error": "Invalid response structure"}
+        except requests.exceptions.RequestException as e:
+            if attempt < max_retries - 1:
+                time.sleep(2)
+                continue
+            return {"error": f"Request failed: {str(e)}"}
+    
+    return {"error": "Max retries exceeded"}
 
 def call_grok(messages, max_tokens=4000, temperature=0.6):
     if not grok_key: return None, "Missing API key"
@@ -112,16 +127,22 @@ def call_grok(messages, max_tokens=4000, temperature=0.6):
     try:
         response = requests.post(GROK_API_URL, headers=headers, json=payload, timeout=120)
         response.raise_for_status()
+        
+        if not response.text or len(response.text.strip()) == 0:
+            return None, "Empty response from Grok API"
+        
         try:
             result = response.json()
-        except json.JSONDecodeError:
-            return None, "Invalid JSON response from Grok"
+        except json.JSONDecodeError as e:
+            return None, f"Invalid JSON from Grok: {str(e)}"
             
         if 'choices' in result and len(result['choices']) > 0:
             return result['choices'][0]['message']['content'], None
-        return None, "Error"
+        return None, "Invalid response structure"
+    except requests.exceptions.RequestException as e:
+        return None, f"Request error: {str(e)}"
     except Exception as e:
-        return None, str(e)
+        return None, f"Unexpected error: {str(e)}"
 
 def generate_research_queries(topic, mode="AI Overview (simple)"):
     if not model: return None, "Gemini not configured"
