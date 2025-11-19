@@ -107,16 +107,49 @@ def generate_research_queries(topic, mode="AI Overview (simple)"):
     try:
         response = model.generate_content(prompt)
         json_text = response.text.strip()
-        if "```json" in json_text:
-            json_text = json_text.split("```json")[1].split("```")[0]
+        if "\`\`\`json" in json_text:
+            json_text = json_text.split("\`\`\`json")[1].split("\`\`\`")[0]
         return json.loads(json_text.strip()), None
     except Exception as e:
         return None, str(e)
 
+def optimize_headings_batch(queries):
+    """Convert long research queries into short SEO headings using Gemini"""
+    if not model: return {q: q for q in queries}
+    
+    # Process in batches of 10 to avoid token limits
+    mappings = {}
+    
+    # Deduplicate queries
+    unique_queries = list(set(queries))
+    
+    prompt = f"""You are an expert SEO editor. Rewrite these long research queries into short, punchy, engaging H2 headings (max 3-6 words).
+    
+    RULES:
+    - Remove "What is", "Provide a detailed", "Explain", "Compare", etc.
+    - Focus on the core topic (e.g., "Fee Structure 2025", "Eligibility Criteria", "Syllabus Comparison")
+    - Use Title Case
+    - Keep it professional
+    - Return JSON mapping original query to new heading
+    
+    QUERIES:
+    {json.dumps(unique_queries)}
+    
+    Return ONLY valid JSON: {{ "mappings": {{ "original query text": "Short Heading" }} }}"""
+    
+    try:
+        response = model.generate_content(prompt)
+        text = response.text.strip()
+        if "\`\`\`json" in text:
+            text = text.split("\`\`\`json")[1].split("\`\`\`")[0]
+        result = json.loads(text)
+        return result.get('mappings', {q: q for q in queries})
+    except Exception as e:
+        print(f"Heading optimization error: {e}")
+        return {q: q for q in queries}
+
 def generate_optimized_headings(research_results):
     """Convert long research queries into concise SEO H2s"""
-    if not model: return None
-    
     queries_list = [data['query'] for data in research_results.values()]
     
     prompt = f"""You are an SEO Expert. Convert these research queries into concise, engaging H2 headings.
@@ -143,8 +176,8 @@ def generate_optimized_headings(research_results):
     try:
         response = model.generate_content(prompt)
         text = response.text.strip()
-        if "```json" in text:
-            text = text.split("```json")[1].split("```")[0]
+        if "\`\`\`json" in text:
+            text = text.split("\`\`\`json")[1].split("\`\`\`")[0]
         data = json.loads(text.strip())
         return data.get('optimized_headings', [])
     except:
@@ -365,6 +398,9 @@ def generate_section_content(heading, research_context, is_first_section=False, 
     """Generate expert-level content with strict data-only rules"""
     if not grok_key: return None, "Grok required"
     
+    context_topic = heading.get('original_query', heading['h2_title'])
+    display_title = heading['h2_title']
+    
     system_instruction = f"""You are an EXPERT TECHNICAL WRITER creating publication-ready content.
 Context Date: {formatted_date}
 
@@ -435,7 +471,8 @@ CRITICAL: Only write about facts in research. Skip missing information silently.
         
         prompt = f"""{system_instruction}
 
-TASK: Write content for: "{heading['h2_title']}"
+TASK: Write content for section: "{display_title}"
+SPECIFIC REQUIREMENT: {context_topic}
 Focus: {heading.get('content_focus', 'Technical details')}
 
 STRUCTURE:
@@ -460,8 +497,10 @@ def generate_intelligent_table(heading, research_context):
         return None, "No table needed"
     
     custom_instruction = heading.get('custom_table_instruction', '')
+    context_topic = heading.get('original_query', heading['h2_title'])
     
     prompt = f"""Create focused data table for: "{heading['h2_title']}"
+CONTEXT/REQUIREMENT: {context_topic}
 
 {f"CUSTOM REQUIREMENT: {custom_instruction}" if custom_instruction else ""}
 
@@ -512,8 +551,8 @@ REMEMBER: Every cell must have complete, factual data. Remove row if any cell in
     if error: return None, error
     
     try:
-        if "```json" in response:
-            response = response.split("```json")[1].split("```")[0]
+        if "\`\`\`json" in response:
+            response = response.split("\`\`\`json")[1].split("\`\`\`")[0]
         table = json.loads(response.strip())
         
         # Validate table
@@ -552,8 +591,8 @@ Return ONLY valid JSON:
     
     if error: return None, error
     try:
-        if "```json" in response:
-            response = response.split("```json")[1].split("```")[0]
+        if "\`\`\`json" in response:
+            response = response.split("\`\`\`json")[1].split("\`\`\`")[0]
         return json.loads(response.strip()), None
     except:
         return None, "Parse error"
@@ -595,8 +634,8 @@ If quality_score < 8, list specific issues."""
     if error: return True, "Check skipped"
     
     try:
-        if "```json" in response:
-            response = response.split("```json")[1].split("```")[0]
+        if "\`\`\`json" in response:
+            response = response.split("\`\`\`json")[1].split("\`\`\`")[0]
         result = json.loads(response.strip())
         if result.get('quality_score', 10) >= 8:
             return True, f"Quality Score: {result['quality_score']}/10"
@@ -1058,16 +1097,12 @@ with tab3:
         # Convert researched queries to outline headings
         if not st.session_state.content_outline.get('headings'):
             
-            # Optimize headings
-            optimized_titles = []
-            if model:
-                with st.spinner("✨ Optimizing outline headings for SEO..."):
-                    optimized_titles = generate_optimized_headings(st.session_state.research_results)
+            with st.spinner("Optimizing headings for SEO..."):
+                all_queries = [data['query'] for data in st.session_state.research_results.values()]
+                optimized_map = optimize_headings_batch(all_queries)
             
             headings = []
-            research_items = list(st.session_state.research_results.items())
-            
-            for idx, (qid, data) in enumerate(research_items):
+            for qid, data in st.session_state.research_results.items():
                 # Determine if it needs table or bullets
                 needs_table = True  # Default
                 custom_instruction = ""
@@ -1079,29 +1114,26 @@ with tab3:
                         needs_table = custom_h.get('content_type') == 'Table Required'
                         custom_instruction = custom_h.get('table_instruction', '')
                 
-                # Use optimized title if available, otherwise fallback to query
-                h2_title = data['query']
-                if optimized_titles and idx < len(optimized_titles):
-                    h2_title = optimized_titles[idx]
+                original_q = data['query']
+                short_h2 = optimized_map.get(original_q, original_q)
                 
                 headings.append({
                     'qid': qid,
-                    'h2_title': h2_title,
+                    'h2_title': short_h2,
+                    'original_query': original_q, # Store original for context
                     'needs_table': needs_table,
                     'needs_bullets': not needs_table,
                     'custom_table_instruction': custom_instruction,
-                    'content_focus': f"Write about {data['query']}"
+                    'content_focus': f"Write about {short_h2}"
                 })
             
             st.session_state.content_outline['headings'] = headings
-            if optimized_titles:
-                st.success(f"✓ Optimized {len(optimized_titles)} headings for SEO")
         
         # Display outline with ability to reorder and edit
         st.markdown(f"**Total Sections:** {len(st.session_state.content_outline['headings'])}")
         
         for idx, heading in enumerate(st.session_state.content_outline['headings']):
-            with st.expander(f"**H2 #{idx+1}: {heading['h2_title'][:60]}...**", expanded=False):
+            with st.expander(f"**H2 #{idx+1}: {heading['h2_title']}**", expanded=False):
                 col1, col2 = st.columns([3, 1])
                 
                 with col1:
@@ -1112,7 +1144,7 @@ with tab3:
                         st.session_state.content_outline['headings'][idx]['h2_title'] = new_title
                     
                     # Content focus
-                    st.caption(f"Focus: {heading['content_focus']}")
+                    st.caption(f"**Context:** {heading.get('original_query', '')[:100]}...")
                 
                 with col2:
                     # Move up/down
@@ -1318,4 +1350,6 @@ with tab4:
                     text += f"{sec['heading']['h2_title']}\n\n{sec.get('content', '')}\n\n"
                 st.download_button("📝 Download Text", text,
                                  file_name=f"{st.session_state.focus_keyword.replace(' ', '_')}.txt",
+                                 mime="text/plain", use_container_width=True)
+session_state.focus_keyword.replace(' ', '_')}.txt",
                                  mime="text/plain", use_container_width=True)
