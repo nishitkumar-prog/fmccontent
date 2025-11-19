@@ -702,6 +702,16 @@ def export_to_html(article_title, meta_description, sections, faqs, latest_updat
 # --- MAIN UI LAYOUT ---
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["1. Research", "2. Settings & Keywords", "3. Research Data", "4. Outline", "5. Content"])
 
+# Debug panel in sidebar
+with st.sidebar:
+    with st.expander("🔍 Debug: Session State", expanded=False):
+        st.write(f"Research Results: {len(st.session_state.research_results)}")
+        st.write(f"Custom Headings: {len(st.session_state.custom_headings)}")
+        st.write(f"Selected Queries: {len(st.session_state.selected_queries)}")
+        st.write(f"Content Outline: {bool(st.session_state.content_outline)}")
+        st.write(f"Generated Sections: {len(st.session_state.generated_sections)}")
+
+
 with tab1:
     st.header("Research Phase")
     st.info(f"Current Context Date: **{formatted_date}**")
@@ -921,6 +931,20 @@ with tab1:
 with tab2:
     st.header("Target Settings & Keywords")
     
+    # Show research status
+    if st.session_state.research_results:
+        st.success(f"✅ Research Data Loaded: {len(st.session_state.research_results)} queries researched")
+        with st.expander("📊 View Research Summary"):
+            for qid, data in list(st.session_state.research_results.items())[:5]:
+                st.markdown(f"**{data['query']}**")
+                st.caption(data['result'][:100] + "...")
+            if len(st.session_state.research_results) > 5:
+                st.info(f"... and {len(st.session_state.research_results) - 5} more")
+    else:
+        st.warning("⚠️ No research data found. Complete research in Tab 1 first.")
+    
+    st.markdown("---")
+    
     col1, col2 = st.columns(2)
     with col1:
         focus_keyword = st.text_input("Focus Keyword *", value=st.session_state.main_topic, 
@@ -991,6 +1015,12 @@ with tab3:
 
 with tab4:
     st.header("Content Outline Generation")
+    
+    # Debug: Show research data status
+    if st.session_state.research_results:
+        st.success(f"✅ {len(st.session_state.research_results)} researched queries available")
+    else:
+        st.error("❌ No research data found!")
     
     has_research = bool(st.session_state.research_results)
     has_keywords = bool(st.session_state.keyword_planner_data)
