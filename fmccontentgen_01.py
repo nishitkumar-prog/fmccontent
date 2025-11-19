@@ -107,8 +107,8 @@ def generate_research_queries(topic, mode="AI Overview (simple)"):
     try:
         response = model.generate_content(prompt)
         json_text = response.text.strip()
-        if "```json" in json_text:
-            json_text = json_text.split("```json")[1].split("```")[0]
+        if "\`\`\`json" in json_text:
+            json_text = json_text.split("\`\`\`json")[1].split("\`\`\`")[0]
         return json.loads(json_text.strip()), None
     except Exception as e:
         return None, str(e)
@@ -308,6 +308,71 @@ Return ONLY the H1 title, nothing else."""
     except:
         return f"{focus_keyword} - Complete Guide {current_year}"
 
+# Convert verbose research queries into crisp, semantic H2 headings using Grok
+def generate_semantic_h2_headings(queries_with_context, focus_keyword):
+    """Convert verbose research queries into crisp, semantic H2 headings using Grok"""
+    if not grok_key: return None, "Grok API key required"
+    
+    queries_text = "\n".join([f"{idx+1}. {q['query']}" for idx, q in enumerate(queries_with_context)])
+    
+    prompt = f"""You are an SEO expert creating semantic, keyword-optimized H2 headings.
+
+MAIN TOPIC: {focus_keyword}
+
+VERBOSE RESEARCH QUERIES (these are too long for headings):
+{queries_text}
+
+TASK: Convert each query into a CRISP, PRECISE H2 heading that:
+1. Is 3-8 words maximum
+2. Captures the CORE topic without explanation
+3. Is SEO-optimized with relevant keywords
+4. Avoids duplicate concepts across headings
+5. Uses natural language (not questions)
+6. Follows semantic search patterns
+
+GOOD EXAMPLES:
+❌ BAD: "Analyze the historical trends (2015-2025) in student enrollment numbers for BSc and BTech Biotechnology programs across India, identifying any significant shifts"
+✅ GOOD: "Enrollment Trends and Student Demographics"
+
+❌ BAD: "What are the explicit eligibility criteria (e.g., minimum marks in specific subjects, required entrance exams) for both BSc and BTech"
+✅ GOOD: "Eligibility Criteria and Entrance Requirements"
+
+❌ BAD: "Provide a comprehensive list of the technical skills that graduates of BTech Biotechnology programs are demonstrably more proficient"
+✅ GOOD: "Technical Skills Comparison"
+
+REQUIREMENTS:
+- Keep semantic relationships to main topic
+- Remove redundant words (comprehensive, detailed, complete, etc.)
+- Use title case
+- Include year if time-sensitive: "(2025)"
+- Group similar concepts into single headings if duplicates exist
+
+Return ONLY valid JSON:
+{{
+  "headings": [
+    {{
+      "original_query": "full original query text",
+      "semantic_h2": "Short Semantic Heading",
+      "keywords": ["keyword1", "keyword2"],
+      "content_focus": "Brief note on what content should cover"
+    }}
+  ],
+  "removed_duplicates": ["list of any duplicate concepts merged"]
+}}"""
+    
+    messages = [{"role": "user", "content": prompt}]
+    response, error = call_grok(messages, max_tokens=3000, temperature=0.3)
+    
+    if error: return None, error
+    
+    try:
+        if "\`\`\`json" in response:
+            response = response.split("\`\`\`json")[1].split("\`\`\`")[0]
+        result = json.loads(response.strip())
+        return result, None
+    except Exception as e:
+        return None, f"Parse error: {str(e)}"
+
 def validate_table_data(table):
     """Validate table has no empty cells or placeholder text"""
     if not table or 'rows' not in table:
@@ -475,8 +540,8 @@ REMEMBER: Every cell must have complete, factual data. Remove row if any cell in
     if error: return None, error
     
     try:
-        if "```json" in response:
-            response = response.split("```json")[1].split("```")[0]
+        if "\`\`\`json" in response:
+            response = response.split("\`\`\`json")[1].split("\`\`\`")[0]
         table = json.loads(response.strip())
         
         # Validate table
@@ -515,8 +580,8 @@ Return ONLY valid JSON:
     
     if error: return None, error
     try:
-        if "```json" in response:
-            response = response.split("```json")[1].split("```")[0]
+        if "\`\`\`json" in response:
+            response = response.split("\`\`\`json")[1].split("\`\`\`")[0]
         return json.loads(response.strip()), None
     except:
         return None, "Parse error"
@@ -558,8 +623,8 @@ If quality_score < 8, list specific issues."""
     if error: return True, "Check skipped"
     
     try:
-        if "```json" in response:
-            response = response.split("```json")[1].split("```")[0]
+        if "\`\`\`json" in response:
+            response = response.split("\`\`\`json")[1].split("\`\`\`")[0]
         result = json.loads(response.strip())
         if result.get('quality_score', 10) >= 8:
             return True, f"Quality Score: {result['quality_score']}/10"
@@ -1013,109 +1078,152 @@ with tab3:
         if h1_edit != st.session_state.content_outline['article_title']:
             st.session_state.content_outline['article_title'] = h1_edit
         
-        # Build H2 structure from researched queries
+        # </CHANGE> Transform research queries into semantic H2 headings
         st.markdown("---")
-        st.subheader("📋 Content Structure - H2 Headings")
-        st.info("These are your researched queries. They will become H2 headings in the article.")
+        st.subheader("🎯 Convert Queries to Semantic H2 Headings")
         
-        # Convert researched queries to outline headings
         if not st.session_state.content_outline.get('headings'):
-            headings = []
-            for qid, data in st.session_state.research_results.items():
-                # Determine if it needs table or bullets
-                needs_table = True  # Default
-                custom_instruction = ""
-                
-                # Check if it's a custom heading with specific instructions
-                if qid.startswith('custom_'):
-                    custom_h = next((h for h in st.session_state.custom_headings if h['id'] == qid), None)
-                    if custom_h:
-                        needs_table = custom_h.get('content_type') == 'Table Required'
-                        custom_instruction = custom_h.get('table_instruction', '')
-                
-                headings.append({
-                    'qid': qid,
-                    'h2_title': data['query'],
-                    'needs_table': needs_table,
-                    'needs_bullets': not needs_table,
-                    'custom_table_instruction': custom_instruction,
-                    'content_focus': f"Write about {data['query']}"
-                })
+            st.info("Click below to transform your research queries into crisp, SEO-friendly H2 headings")
             
-            st.session_state.content_outline['headings'] = headings
+            if st.button("✨ Generate Semantic H2 Headings", type="primary", use_container_width=True):
+                if not grok_key:
+                    st.error("⚠️ Grok API key required in sidebar")
+                else:
+                    with st.spinner("Transforming queries into semantic headings..."):
+                        # Prepare queries for transformation
+                        queries_list = []
+                        for qid, data in st.session_state.research_results.items():
+                            queries_list.append({
+                                'qid': qid,
+                                'query': data['query']
+                            })
+                        
+                        # Call Grok to generate semantic headings
+                        result, error = generate_semantic_h2_headings(queries_list, st.session_state.focus_keyword)
+                        
+                        if result and 'headings' in result:
+                            # Map semantic headings back to research data
+                            headings = []
+                            for idx, heading_data in enumerate(result['headings']):
+                                if idx < len(queries_list):
+                                    qid = queries_list[idx]['qid']
+                                    
+                                    # Determine if it needs table or bullets from original
+                                    needs_table = True
+                                    custom_instruction = ""
+                                    
+                                    if qid.startswith('custom_'):
+                                        custom_h = next((h for h in st.session_state.custom_headings if h['id'] == qid), None)
+                                        if custom_h:
+                                            needs_table = custom_h.get('content_type') == 'Table Required'
+                                            custom_instruction = custom_h.get('table_instruction', '')
+                                    
+                                    headings.append({
+                                        'qid': qid,
+                                        'h2_title': heading_data['semantic_h2'],  # Use semantic heading
+                                        'original_query': heading_data['original_query'],  # Keep original for context
+                                        'keywords': heading_data.get('keywords', []),
+                                        'needs_table': needs_table,
+                                        'needs_bullets': not needs_table,
+                                        'custom_table_instruction': custom_instruction,
+                                        'content_focus': heading_data.get('content_focus', f"Write about {heading_data['semantic_h2']}")
+                                    })
+                            
+                            st.session_state.content_outline['headings'] = headings
+                            
+                            if result.get('removed_duplicates'):
+                                st.info(f"ℹ️ Merged duplicates: {', '.join(result['removed_duplicates'])}")
+                            
+                            st.success(f"✅ Generated {len(headings)} semantic H2 headings!")
+                            st.rerun()
+                        else:
+                            st.error(f"Error: {error}")
         
         # Display outline with ability to reorder and edit
-        st.markdown(f"**Total Sections:** {len(st.session_state.content_outline['headings'])}")
-        
-        for idx, heading in enumerate(st.session_state.content_outline['headings']):
-            with st.expander(f"**H2 #{idx+1}: {heading['h2_title'][:60]}...**", expanded=False):
-                col1, col2 = st.columns([3, 1])
-                
-                with col1:
-                    # Edit H2 title
-                    new_title = st.text_input("H2 Title:", value=heading['h2_title'], 
-                                            key=f"h2_edit_{idx}")
-                    if new_title != heading['h2_title']:
-                        st.session_state.content_outline['headings'][idx]['h2_title'] = new_title
+        if st.session_state.content_outline.get('headings'):
+            st.markdown("---")
+            st.subheader("📋 Content Structure - H2 Headings")
+            st.markdown(f"**Total Sections:** {len(st.session_state.content_outline['headings'])}")
+            
+            for idx, heading in enumerate(st.session_state.content_outline['headings']):
+                with st.expander(f"**H2 #{idx+1}: {heading['h2_title']}**", expanded=False):
+                    col1, col2 = st.columns([3, 1])
                     
-                    # Content focus
-                    st.caption(f"Focus: {heading['content_focus']}")
-                
-                with col2:
-                    # Move up/down
-                    col_up, col_down, col_del = st.columns(3)
-                    with col_up:
-                        if idx > 0 and st.button("⬆️", key=f"up_{idx}", help="Move up"):
-                            headings = st.session_state.content_outline['headings']
-                            headings[idx], headings[idx-1] = headings[idx-1], headings[idx]
-                            st.rerun()
-                    with col_down:
-                        if idx < len(st.session_state.content_outline['headings'])-1 and \
-                           st.button("⬇️", key=f"down_{idx}", help="Move down"):
-                            headings = st.session_state.content_outline['headings']
-                            headings[idx], headings[idx+1] = headings[idx+1], headings[idx]
-                            st.rerun()
-                    with col_del:
-                        if st.button("🗑️", key=f"remove_{idx}", help="Remove"):
-                            st.session_state.content_outline['headings'].pop(idx)
-                            st.rerun()
-                
-                # Structure display
-                structure_tags = []
-                if heading.get('needs_table'):
-                    structure_tags.append("📊 Table")
-                if heading.get('needs_bullets'):
-                    structure_tags.append("📝 Bullets")
-                structure_tags.append("📄 Paragraph")
-                
-                st.info(f"Structure: {' + '.join(structure_tags)}")
-                
-                if heading.get('custom_table_instruction'):
-                    st.success(f"**Custom Table:** {heading['custom_table_instruction']}")
-                
-                # Toggle table/bullets
-                col_t, col_b = st.columns(2)
-                with col_t:
-                    if st.checkbox("Needs Table", value=heading.get('needs_table', True), 
-                                 key=f"table_{idx}"):
-                        st.session_state.content_outline['headings'][idx]['needs_table'] = True
-                        st.session_state.content_outline['headings'][idx]['needs_bullets'] = False
-                with col_b:
-                    if st.checkbox("Needs Bullets", value=heading.get('needs_bullets', False),
-                                 key=f"bullets_{idx}"):
-                        st.session_state.content_outline['headings'][idx]['needs_bullets'] = True
-                        st.session_state.content_outline['headings'][idx]['needs_table'] = False
-        
-        # Preview full outline
-        st.markdown("---")
-        st.markdown("### 📄 Full Article Outline Preview")
-        st.markdown(f"# {st.session_state.content_outline['article_title']}")
-        for idx, h in enumerate(st.session_state.content_outline['headings'], 1):
-            structure = "Table" if h.get('needs_table') else "Bullets"
-            st.markdown(f"{idx}. **{h['h2_title']}** [{structure}]")
-        
-        st.markdown("---")
-        st.info("✅ Outline ready! Go to Tab 4 to generate content.")
+                    with col1:
+                        # Edit H2 title
+                        new_title = st.text_input("H2 Title:", value=heading['h2_title'], 
+                                                key=f"h2_edit_{idx}")
+                        if new_title != heading['h2_title']:
+                            st.session_state.content_outline['headings'][idx]['h2_title'] = new_title
+                        
+                        # Show original query as context
+                        if heading.get('original_query'):
+                            st.caption(f"📝 Research Context: {heading['original_query'][:100]}...")
+                        
+                        # Show keywords
+                        if heading.get('keywords'):
+                            st.caption(f"🔑 Keywords: {', '.join(heading['keywords'])}")
+                        
+                        # Content focus
+                        st.caption(f"🎯 Focus: {heading['content_focus']}")
+                    
+                    with col2:
+                        # Move up/down
+                        col_up, col_down, col_del = st.columns(3)
+                        with col_up:
+                            if idx > 0 and st.button("⬆️", key=f"up_{idx}", help="Move up"):
+                                headings = st.session_state.content_outline['headings']
+                                headings[idx], headings[idx-1] = headings[idx-1], headings[idx]
+                                st.rerun()
+                        with col_down:
+                            if idx < len(st.session_state.content_outline['headings'])-1 and \
+                               st.button("⬇️", key=f"down_{idx}", help="Move down"):
+                                headings = st.session_state.content_outline['headings']
+                                headings[idx], headings[idx+1] = headings[idx+1], headings[idx]
+                                st.rerun()
+                        with col_del:
+                            if st.button("🗑️", key=f"remove_{idx}", help="Remove"):
+                                st.session_state.content_outline['headings'].pop(idx)
+                                st.rerun()
+                    
+                    # Structure display
+                    structure_tags = []
+                    if heading.get('needs_table'):
+                        structure_tags.append("📊 Table")
+                    if heading.get('needs_bullets'):
+                        structure_tags.append("📝 Bullets")
+                    structure_tags.append("📄 Paragraph")
+                    
+                    st.info(f"Structure: {' + '.join(structure_tags)}")
+                    
+                    if heading.get('custom_table_instruction'):
+                        st.success(f"**Custom Table:** {heading['custom_table_instruction']}")
+                    
+                    # Toggle table/bullets
+                    col_t, col_b = st.columns(2)
+                    with col_t:
+                        if st.checkbox("Needs Table", value=heading.get('needs_table', True), 
+                                     key=f"table_{idx}"):
+                            st.session_state.content_outline['headings'][idx]['needs_table'] = True
+                            st.session_state.content_outline['headings'][idx]['needs_bullets'] = False
+                    with col_b:
+                        if st.checkbox("Needs Bullets", value=heading.get('needs_bullets', False),
+                                     key=f"bullets_{idx}"):
+                            st.session_state.content_outline['headings'][idx]['needs_bullets'] = True
+                            st.session_state.content_outline['headings'][idx]['needs_table'] = False
+            
+            # Preview full outline
+            st.markdown("---")
+            st.markdown("### 📄 Full Article Outline Preview")
+            st.markdown(f"# {st.session_state.content_outline['article_title']}")
+            for idx, h in enumerate(st.session_state.content_outline['headings'], 1):
+                structure = "📊" if h.get('needs_table') else "📝"
+                st.markdown(f"{idx}. **{h['h2_title']}** {structure}")
+                if h.get('keywords'):
+                    st.caption(f"   Keywords: {', '.join(h['keywords'][:3])}")
+            
+            st.markdown("---")
+            st.info("✅ Outline ready! Go to Tab 4 to generate content.")
 
 with tab4:
     st.header("Step 4: Generate Content")
