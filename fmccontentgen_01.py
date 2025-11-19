@@ -9,7 +9,7 @@ import io
 
 # App config
 st.set_page_config(page_title="Content Generator", layout="wide")
-st.title("SEO Content Generator")
+st.title("SEO Content Generator - Dense Table Protocol")
 
 # API Configuration
 GROK_API_URL = "https://api.x.ai/v1/chat/completions"
@@ -19,6 +19,8 @@ if 'fanout_results' not in st.session_state:
     st.session_state.fanout_results = None
 if 'research_results' not in st.session_state:
     st.session_state.research_results = {}
+if 'competitor_research' not in st.session_state:
+    st.session_state.competitor_research = {}
 if 'selected_queries' not in st.session_state:
     st.session_state.selected_queries = set()
 if 'content_outline' not in st.session_state:
@@ -78,7 +80,7 @@ def call_perplexity(query, system_prompt=None, max_retries=2):
     
     for attempt in range(max_retries):
         try:
-            response = requests.post("https://api.perplexity.ai/chat/completions", headers=headers, json=data, timeout=45)
+            response = requests.post("https://api.perplexity.ai/chat/completions", headers=headers, json=data, timeout=60)
             response.raise_for_status()
             result = response.json()
             if 'choices' in result and len(result['choices']) > 0:
@@ -86,7 +88,7 @@ def call_perplexity(query, system_prompt=None, max_retries=2):
             return {"error": "Invalid response"}
         except:
             if attempt < max_retries - 1:
-                time.sleep(2)
+                time.sleep(3)
                 continue
             return {"error": "Failed"}
     return {"error": "Max retries"}
@@ -97,7 +99,7 @@ def call_grok(messages, max_tokens=4000, temperature=0.6):
     headers = {"Authorization": f"Bearer {grok_key}", "Content-Type": "application/json"}
     payload = {"messages": messages, "model": "grok-3", "stream": False, "temperature": temperature, "max_tokens": max_tokens}
     try:
-        response = requests.post(GROK_API_URL, headers=headers, json=payload, timeout=120)
+        response = requests.post(GROK_API_URL, headers=headers, json=payload, timeout=150)
         response.raise_for_status()
         result = response.json()
         if 'choices' in result and len(result['choices']) > 0:
@@ -106,13 +108,92 @@ def call_grok(messages, max_tokens=4000, temperature=0.6):
     except Exception as e:
         return None, str(e)
 
+def analyze_competitor_coverage(focus_keyword, target_country):
+    """Analyze what competitors are covering for the topic"""
+    if not perplexity_key:
+        return ""
+    
+    current_date = datetime.now().strftime("%B %d, %Y")
+    
+    query = f"""CURRENT DATE: {current_date}
+
+Analyze comprehensive coverage of "{focus_keyword}" for {target_country} students on:
+- Shiksha.com
+- CollegeDunia.com  
+- Careers360.com
+- CollegeDekho.com
+- AglaSem.com
+- Vedantu.com
+
+List ALL sections with specific details:
+
+1. TABLES THEY USE:
+   - Eligibility table: what columns? (e.g., Level, Age, Qualification, Experience)
+   - Fees table: what breakdown? (e.g., Registration, Exam, Late fee, Membership)
+   - Exam pattern: what details? (e.g., Paper, Questions, Marks, Duration, Negative marking)
+   - Dates table: what sessions/phases?
+   - Comparison table: compared with what alternatives?
+   - College/Institute listings: what metrics shown?
+   - Salary data: how segmented? (Experience, Location, Role)
+
+2. UNIQUE SECTIONS:
+   - What competitor-specific headings they use
+   - Special calculators or tools
+   - Regional variations covered
+
+3. DATA GRANULARITY:
+   - How many tiers/levels they show
+   - Whether they show state-wise variations
+   - Time-based comparisons (year over year)
+
+Provide specific table structures and column names they use."""
+    
+    system_prompt = "Analyze competitor websites in forensic detail. List exact table structures, column headers, data segmentation strategies. Be comprehensive and specific about how they organize information."
+    
+    res = call_perplexity(query, system_prompt=system_prompt, max_retries=3)
+    if res and 'choices' in res and len(res['choices']) > 0:
+        return res['choices'][0]['message'].get('content', '')
+    return ""
+
 def generate_research_queries(topic, mode="AI Overview (simple)"):
     if not model:
         return None, "Gemini not configured"
-    min_queries = 12 if mode == "AI Overview (simple)" else 25
-    prompt = f"""Generate {min_queries}+ research queries for: "{topic}"
+    min_queries = 18 if mode == "AI Overview (simple)" else 35
+    prompt = f"""Generate {min_queries}+ deep research queries for: "{topic}"
+
+MANDATORY QUERY TYPES:
+
+1. COMPETITOR ANALYSIS (3-4 queries):
+   - "Exact table structures used by Shiksha.com for {topic}"
+   - "Column headers in CollegeDunia {topic} eligibility tables"
+   - "Data granularity in Careers360 {topic} fee breakdowns"
+
+2. EXHAUSTIVE CRITERIA (4-5 queries):
+   - "Complete eligibility criteria with age limits, qualifications, experience for {topic}"
+   - "All fee components including hidden charges for {topic}"
+   - "Detailed exam pattern with section-wise marks distribution for {topic}"
+   - "Edge cases and special categories in {topic} eligibility"
+
+3. TEMPORAL DATA (3-4 queries):
+   - "Current year exam dates and deadlines for {topic}"
+   - "Year-over-year changes in {topic} fees and pattern"
+   - "Latest policy updates and notifications for {topic}"
+
+4. COMPARATIVE ANALYSIS (3-4 queries):
+   - "Tier-wise comparison in {topic}"
+   - "{topic} vs alternative certifications detailed comparison"
+   - "State-wise or regional variations in {topic}"
+
+5. DEEP SPECIFICS (remaining queries):
+   - Technical specifications, syllabus weightage
+   - College/institute listings with placement data
+   - Salary trends by experience and location
+   - Pass percentages and cutoff trends
+   - Application process step-by-step with timelines
+   - Document requirements and verification process
+
 Return ONLY valid JSON:
-{{"queries": [{{"query": "question", "category": "category", "priority": "high/medium/low", "purpose": "purpose"}}]}}"""
+{{"queries": [{{"query": "detailed question", "category": "category", "priority": "high/medium/low", "purpose": "specific data need"}}]}}"""
     try:
         response = model.generate_content(prompt)
         json_text = response.text.strip()
@@ -122,70 +203,150 @@ Return ONLY valid JSON:
     except Exception as e:
         return None, str(e)
 
-def generate_outline_from_research(focus_keyword, target_country, required_tables, research_data):
+def research_table_data_dense(heading, target_country, focus_keyword):
+    """DENSE-TABLE DEEP DIVE research protocol"""
+    if not perplexity_key:
+        return ""
+    
+    current_date = datetime.now().strftime("%B %d, %Y")
+    current_year = datetime.now().year
+    
+    query = f"""### DENSE-TABLE DEEP DIVE RESEARCH
+**CURRENT DATE:** {current_date}
+**TOPIC:** {heading['h2_title']} for {focus_keyword} in {target_country}
+**TABLE PURPOSE:** {heading.get('table_purpose', 'exhaustive data')}
+
+STRICT REQUIREMENTS:
+
+1. TEMPORAL ANCHOR:
+   - Provide {current_year} data ONLY
+   - If {current_year} data unavailable, write "No {current_year} Data Available" 
+   - Include exact dates: DD MMM YYYY format
+   - Flag expired policies/criteria as "EXPIRED as of [date]"
+
+2. BANNED PHRASES (Auto-fail if used):
+   ❌ "Generally", "Typically", "Usually", "Standard"
+   ❌ "Various factors", "Depends on", "May vary"
+   ❌ "Around", "Approximately", "About"
+   ❌ "Requirements vary", "Subject to change"
+
+3. DATA DENSITY REQUIREMENTS:
+   - Minimum 8-10 distinct data rows
+   - Cover ALL tiers/levels/categories
+   - Include edge cases and exceptions
+   - Show regional variations within {target_country}
+
+4. SPECIFICITY FILTERS:
+
+For ELIGIBILITY topics:
+- NOT "Must be graduate" → "Bachelor's degree (10+2+3 pattern) with minimum 50% marks (45% for reserved categories)"
+- NOT "Age limit applies" → "Minimum 18 years, Maximum 35 years (40 for OBC, 45 for SC/ST as per Govt. norms dated 15 Jan 2024)"
+- NOT "Work experience required" → "2 years post-qualification experience in accounts/finance domain, verified through Form 16 or salary slips"
+
+For FEES topics:
+- NOT "Registration fee required" → "Registration Fee: ₹1,500 (Non-refundable), Exam Fee: ₹3,500 per paper, Late Fee: ₹500 (applies after 15 Mar 2025), Reappearance Fee: ₹2,800"
+- Include GST breakdowns, payment modes, refund policies
+
+For EXAM PATTERN topics:
+- NOT "Multiple choice questions" → "100 MCQs (4 options each), 1 mark per question, Negative marking: -0.25 for wrong answer, Total marks: 100, Duration: 120 minutes"
+- Include section-wise breakup, marking scheme details, calculator/chart allowance
+
+For DATES topics:
+- NOT "Exam in March" → "Session 1: 15-18 March 2025, Session 2: 22-25 May 2025, Results: Within 45 days of exam, Admit Card: 10 days before exam"
+
+5. MULTI-DIMENSIONAL COVERAGE:
+- Break down by: Level/Stage, Category (General/OBC/SC/ST), Location, Experience tier
+- Include: Minimum requirements, Preferred criteria, Exceptional cases
+- Add: Source references (circular numbers, notification dates, official URLs)
+
+6. COMPARATIVE METRICS:
+- Before vs After policy changes
+- Different institutes/boards if applicable
+- Year-over-year trends
+- Tier-wise fee structures
+
+OUTPUT FORMAT:
+Provide structured data ready for table conversion:
+Row 1: [Column 1 data] | [Column 2 data] | [Column 3 data] | [Column 4 data]
+Row 2: [Column 1 data] | [Column 2 data] | [Column 3 data] | [Column 4 data]
+...minimum 8 rows
+
+Focus on OBSCURE, TECHNICAL, EXCLUSIONARY details that competitors miss."""
+    
+    system_prompt = f"You are a forensic data specialist. Provide ONLY specific, verifiable {current_year} data. No generic statements. Every number must be exact. Every date must be precise. Include policy references and edge cases. Prioritize technical details over obvious information."
+    
+    res = call_perplexity(query, system_prompt=system_prompt, max_retries=3)
+    if res and 'choices' in res and len(res['choices']) > 0:
+        return res['choices'][0]['message'].get('content', '')
+    return ""
+
+def generate_outline_from_research(focus_keyword, target_country, required_tables, research_data, competitor_analysis):
     if not model:
         return None, "Gemini not configured"
     
-    research_summary = "\n".join([f"- {data['query']}: {data['result'][:150]}..." for data in list(research_data.values())[:15]])
+    current_year = datetime.now().year
+    research_summary = "\n".join([f"- {data['query']}: {data['result'][:200]}..." for data in list(research_data.values())[:20]])
     
     tables_context = ""
     if required_tables:
         tables_context = f"\n\nMANDATORY TABLES:\n" + "\n".join([f"- {t}" for t in required_tables])
     
-    prompt = f"""Create article outline for: "{focus_keyword}"
+    competitor_context = ""
+    if competitor_analysis:
+        competitor_context = f"\n\nCOMPETITOR COVERAGE:\n{competitor_analysis[:1800]}"
+    
+    prompt = f"""Create comprehensive article outline for: "{focus_keyword}" ({current_year})
 
 TARGET: Students in {target_country}
+CURRENT YEAR: {current_year}
 RESEARCH:
 {research_summary}
 {tables_context}
+{competitor_context}
+
+CRITICAL REQUIREMENT: Each section MUST have a DENSE data table with 8-10+ rows covering the topic exhaustively.
 
 HEADING RULES:
-1. Direct, factual headings - NO questions, NO suffixes
-2. Simple format: "[Topic] [Year if date-related]"
-3. NO: "Which is for You?", "Everything You Need to Know", "Complete Guide"
-4. YES: "CMA vs CPA", "CMA Eligibility 2025", "CMA Exam Pattern"
+1. Direct, factual headings with year - NO questions, NO suffixes
+2. Format: "[Topic] {current_year}" or "[Topic] [Specific Aspect]"
+3. Examples:
+   ✅ "CMA Eligibility {current_year}"
+   ✅ "CMA Fees Breakdown"
+   ✅ "CMA vs CPA Comparison"
+   ❌ "CMA Eligibility: Everything You Need to Know"
+   ❌ "How to Check CMA Fees?"
 
-AVOID REPETITION - Each heading = unique topic only.
+MANDATORY SECTIONS (adapt to topic):
+1. Eligibility Criteria → Table: Level-wise requirements with age, qualification, experience, categories
+2. Fees Structure → Table: Component-wise breakdown (Registration, Exam, Late, Membership, GST)
+3. Exam Pattern → Table: Paper-wise marks, duration, negative marking, passing criteria
+4. Important Dates {current_year} → Table: Session-wise registration, exam, result dates
+5. Application Process → Table: Step-by-step with timelines and documents
+6. Syllabus Overview → Table: Subject-wise topics with weightage
+7. Comparison with Alternatives → Table: Side-by-side comparison (fees, duration, difficulty, value)
+8. Exam Centers → Table: State/city-wise centers with codes
+9. Pass Percentage Trends → Table: Year-wise statistics
+10. Career Prospects → Table: Role-wise salary by experience
+11. Top Colleges/Institutes → Table: Institute, location, fees, placements
+12. [Additional unique sections from competitor analysis]
 
-Good heading examples:
-- CMA 2025 Exam Dates
-- CMA Eligibility Criteria
-- CMA Exam Pattern
-- CMA Fees Structure
-- CMA vs CPA Comparison
-- CMA Application Process
-- CMA Syllabus Overview
-- CMA Career Opportunities
-- CMA Salary in India
-
-Bad heading examples:
-- CMA vs CPA: Which is Best for You?
-- Everything About CMA Eligibility
-- Complete Guide to CMA Fees
-- How to Apply for CMA?
-
-CREATE 8-10 UNIQUE HEADINGS covering:
-- Current exam dates/schedule (with year)
-- Eligibility requirements
-- Exam pattern/structure
-- Fees and costs
-- Application/registration process
-- Syllabus topics
-- Comparison with other certifications
-- Career prospects/salary
-- Results and pass percentage
+CREATE 12-15 UNIQUE HEADINGS.
+Each heading MUST specify exact table structure.
 
 Return ONLY valid JSON:
 {{
-  "article_title": "{focus_keyword}: [Simple subtitle]",
-  "meta_description": "150-160 chars with key facts",
+  "article_title": "{focus_keyword} {current_year}: [Simple subtitle]",
+  "meta_description": "150-160 chars with {current_year} key facts",
   "headings": [
     {{
-      "h2_title": "Direct heading without suffix",
-      "student_question": "What info this provides",
-      "key_facts": ["fact 1", "fact 2", "fact 3"],
-      "needs_table": true/false,
-      "table_purpose": "what comparison/data"
+      "h2_title": "Direct heading with year if relevant",
+      "student_question": "What specific info this provides",
+      "key_facts": ["specific fact 1", "specific fact 2", "specific fact 3"],
+      "needs_table": true,
+      "table_purpose": "Exact data to show",
+      "table_type": "comparison/timeline/breakdown/listing/statistics",
+      "table_columns": ["Column 1", "Column 2", "Column 3", "Column 4"],
+      "min_rows": 8
     }}
   ]
 }}"""
@@ -204,147 +365,281 @@ def get_latest_alerts(focus_keyword, target_country):
     if not perplexity_key:
         return ""
     
-    current_date = datetime.now().strftime("%B %Y")
-    query = f"Latest news, updates, deadlines, or important announcements about {focus_keyword} in {target_country} in {current_date}. Include exam dates, fee changes, new regulations, or recent updates."
+    current_date = datetime.now().strftime("%B %d, %Y")
+    current_year = datetime.now().year
     
-    system_prompt = "Provide only the most recent and factual updates from 2024-2025. Include specific dates and changes. Be direct and concise."
+    query = f"""CURRENT DATE: {current_date}
+
+Latest updates for {focus_keyword} in {target_country} in {current_year}:
+
+PROVIDE ONLY:
+- Exam date notifications (with exact dates DD MMM YYYY)
+- Fee changes (with new amounts and effective dates)
+- New regulations/policies (with circular numbers and dates)
+- Deadline extensions (with old and new dates)
+- Pattern changes (with specifics)
+
+EXCLUDE:
+- Speculative information
+- Unverified news
+- Generic announcements
+
+Format: [Update Type] - [Specific Detail] - [Date/Source Reference]"""
     
-    res = call_perplexity(query, system_prompt=system_prompt)
+    system_prompt = f"Provide ONLY verified {current_year} updates with exact dates. Include notification/circular numbers. If no recent updates exist, state 'No recent updates available'."
+    
+    res = call_perplexity(query, system_prompt=system_prompt, max_retries=3)
     if res and 'choices' in res and len(res['choices']) > 0:
-        return res['choices'][0]['message'].get('content', '')[:500]
+        return res['choices'][0]['message'].get('content', '')[:600]
     return ""
 
-def generate_section_content(heading, focus_keyword, target_country, research_context, is_first_section=False, latest_alerts=""):
+def generate_section_content_dense(heading, focus_keyword, target_country, research_context, table_research, is_first_section=False, latest_alerts=""):
+    """Generate content using DENSE-TABLE protocol"""
     if not grok_key:
         return None, "Grok required"
     
+    current_date = datetime.now().strftime("%B %d, %Y")
+    current_year = datetime.now().year
+    
     if is_first_section:
-        alerts_context = f"\n\nLATEST UPDATES:\n{latest_alerts}" if latest_alerts else ""
+        alerts_context = f"\n\nLATEST UPDATES ({current_year}):\n{latest_alerts}" if latest_alerts else ""
         
-        prompt = f"""Write opening content for: "{heading['h2_title']}"
-
-TOPIC: {focus_keyword}
-COUNTRY: {target_country}
-RESEARCH: {research_context[:2500]}
+        prompt = f"""### DENSE-TABLE PROTOCOL: OPENING SECTION
+**CURRENT DATE:** {current_date}
+**HEADING:** {heading['h2_title']}
+**TOPIC:** {focus_keyword}
+**COUNTRY:** {target_country}
+**RESEARCH:** {research_context[:2500]}
 {alerts_context}
 
-Write naturally in two parts:
+STRUCTURE:
 
-First (if updates exist): Start with **Latest About {focus_keyword}:** then 2-3 sentences about current dates/announcements.
+**Part 1: Latest Updates (if available)**
+Start with: **{current_year} Updates on {focus_keyword}:**
+- 2-3 sentences with EXACT dates and specific changes
+- Use format: "As of DD MMM YYYY, [specific change]"
+- If no updates: skip this part
 
-Second: Write 180-220 word definition and overview. SHORT SENTENCES (max 12-15 words).
+**Part 2: Technical Deep Dive (220-280 words)**
+NO introduction phrases. Start directly with definition.
 
-What to include:
-- What it is (definition)
-- Who offers it
-- What it covers/focuses on
-- Structure (levels, parts, components)
-- Who it's for
-- Basic requirements
-- Why it matters in professional context
+BANNED WORDS: Generally, Typically, Prestigious, Renowned, Comprehensive, Deep, Various, Standard
 
-What NOT to include:
-- Promotional words: prestigious, valuable, deep, comprehensive, renowned
-- Fluff phrases: "showcasing advanced expertise", "guide business strategy"
-- Unnecessary adjectives
+INCLUDE:
+- Exact definition with technical terms
+- Specific structure (e.g., "3 levels: Foundation, Intermediate, Final")
+- Precise requirements (e.g., "Bachelor's degree with 50% marks")
+- Governing body with full name
+- What it covers (list 4-5 specific subjects/areas)
+- Who conducts it (institute/board name)
+- Duration in months/years
+- Recognition scope (national/international/industry-specific)
+- Prerequisites with specifics
 
-Write direct facts. Example:
-"The CMA is a professional certification in management accounting. IMA offers this credential globally. ICMAI conducts CMA exams in India. The certification covers cost accounting, financial planning, and business analysis. It includes three levels: Foundation, Intermediate, and Final. Each level tests specific competencies through written examinations. The program targets accounting graduates and finance professionals. Requirements include a degree and work experience. The certification qualifies professionals for controller and CFO positions."
+WRITE SHORT SENTENCES (10-14 words max).
+End naturally: "The table below shows [what table covers]."
 
-Write content now. Natural prose, no section labels."""
+Write content now. Direct facts only."""
     else:
-        prompt = f"""Write content strictly for: "{heading['h2_title']}"
-
-TOPIC: {focus_keyword}
-COUNTRY: {target_country}
-KEY FACTS: {', '.join(heading.get('key_facts', []))}
-RESEARCH: {research_context[:1500]}
+        prompt = f"""### DENSE-TABLE PROTOCOL: SECTION CONTENT
+**CURRENT DATE:** {current_date}
+**HEADING:** {heading['h2_title']}
+**TOPIC:** {focus_keyword}
+**COUNTRY:** {target_country}
+**KEY FACTS:** {', '.join(heading.get('key_facts', []))}
+**RESEARCH:** {research_context[:1200]}
+**TABLE RESEARCH:** {table_research[:1500]}
 
 CRITICAL RULES:
-1. DO NOT repeat the heading "{heading['h2_title']}" in your output
-2. Start directly with content
-3. Write ONLY about what the heading asks
-4. 80-120 words
-5. SHORT sentences (max 12-15 words)
-6. Use bullets only for actual lists
-7. No fluff, no promotional language
+1. NO heading repetition. Start directly with content.
+2. Write ONLY about this specific heading topic
+3. 120-180 words
+4. SHORT sentences (10-14 words max)
+5. NO generic eligibility like "must be 18" - focus on SPECIFIC, TECHNICAL criteria
+6. End with: "The table below provides [specific data type] in detail."
 
-Example - if heading is "CMA Eligibility":
-❌ WRONG: "CMA Eligibility\nCMA Foundation requires..."
-❌ WRONG: "Eligibility for CMA\nTo become eligible..."
-✅ CORRECT: "CMA Foundation requires Class 12 pass..."
+BANNED WORDS: Generally, Typically, Usually, Standard, Various, Approximately, Around
 
-Start writing content immediately without repeating heading.
+SPECIFICITY REQUIREMENT:
+- NOT "Multiple levels exist" → "Foundation: Class 12 pass; Intermediate: Graduate; Final: CA Inter pass"
+- NOT "Fees apply" → "Registration: ₹1,500; Exam: ₹3,500 per paper; Late fee: ₹500 after 15 Mar"
+- NOT "Experience needed" → "2 years post-qualification in accounts/audit domain with Form 16 proof"
 
-If heading asks about eligibility, write ONLY eligibility requirements.
-If heading asks about fees, write ONLY fee amounts and structure.
-If heading asks about exam pattern, write ONLY pattern details.
+If heading is about ELIGIBILITY:
+- Skip obvious criteria (age 18+, citizenship)
+- Focus on: Specific qualification patterns, percentage requirements by category, experience domain, document verification process, exceptions/exemptions
 
-Write content now. No heading repetition."""
+If heading is about FEES:
+- Skip "fees required"
+- Focus on: Each component separately, GST breakdown, payment deadlines with penalties, refund policy specifics, payment modes
+
+If heading is about EXAM PATTERN:
+- Skip "exam has questions"
+- Focus on: Exact question distribution, marking scheme with negative marking ratio, time per section, allowances (calculator/charts), passing criteria variations
+
+If heading is about DATES:
+- List specific date ranges for {current_year}
+- Mention session/phase differences
+- Note admit card timeline, result declaration timeline
+
+Write content immediately. Reference table at end."""
     
     messages = [{"role": "user", "content": prompt}]
-    max_tokens = 900 if is_first_section else 500
-    content, error = call_grok(messages, max_tokens=max_tokens, temperature=0.5)
+    max_tokens = 1100 if is_first_section else 700
+    content, error = call_grok(messages, max_tokens=max_tokens, temperature=0.4)
     return content, error
 
-def generate_data_table(heading, target_country, research_context):
-    if not grok_key or not heading.get('needs_table'):
-        return None, "No table needed"
+def generate_data_table_dense(heading, target_country, research_context, table_research):
+    """Generate DENSE table using DENSE-TABLE protocol"""
+    if not grok_key:
+        return None, "No Grok"
     
-    prompt = f"""Create table for: "{heading['h2_title']}"
+    current_date = datetime.now().strftime("%B %d, %Y")
+    current_year = datetime.now().year
+    
+    combined_research = f"{research_context[:800]}\n\n=== DETAILED TABLE RESEARCH ===\n{table_research}"
+    
+    prompt = f"""### DENSE-TABLE GENERATION PROTOCOL
+**CURRENT DATE:** {current_date}
+**HEADING:** {heading['h2_title']}
+**PURPOSE:** {heading.get('table_purpose', 'exhaustive data')}
+**TYPE:** {heading.get('table_type', 'listing')}
+**COUNTRY:** {target_country}
+**SUGGESTED COLUMNS:** {', '.join(heading.get('table_columns', ['Column1', 'Column2', 'Column3']))}
+**MINIMUM ROWS:** {heading.get('min_rows', 8)}
 
-PURPOSE: {heading.get('table_purpose', '')}
-COUNTRY: {target_country}
-RESEARCH: {research_context[:1500]}
+**RESEARCH DATA:**
+{combined_research[:2500]}
 
-SHIKSHA.COM TABLE STYLE - Clean, professional, complete:
-- Only REAL data from research
-- Common formats: Exam dates, Fees, Eligibility, Pattern
-- Use {target_country} currency
-- Date format: DD MMM 'YY
-- 4-8 rows, 3-5 columns max
+STRICT REQUIREMENTS:
+
+1. TEMPORAL ANCHOR:
+   - Use ONLY {current_year} data
+   - If {current_year} data unavailable, write "No {current_year} Data" in that cell
+   - Include year in table title if time-sensitive
+
+2. DATA DENSITY:
+   - Minimum {heading.get('min_rows', 8)} rows (aim for 10-12)
+   - Cover ALL tiers/levels/categories
+   - Include edge cases and exceptions
+   - Show variations (by state, category, level)
+
+3. CELL CONTENT RULES:
+   - NO boolean ticks/crosses alone → "Yes (Cap: ₹50,000)" not just "Yes"
+   - NO generic terms → "Registration Fee: ₹1,500" not "Registration: Applicable"
+   - Include units → "120 minutes" not "120", "₹3,500" not "3500"
+   - Add qualifiers → "50% (45% for reserved)" not just "50%"
+
+4. BANNED CONTENT IN CELLS:
+   ❌ "Varies", "Depends", "TBD", "NA", "—"
+   ❌ "As per norms", "Check official site"
+   ❌ "To be announced", "Will be notified"
+   Use: "Not Applicable for {current_year}" or "No {current_year} Data"
+
+5. SPECIFIC TABLE FORMATS:
+
+ELIGIBILITY TABLE:
+Headers: ["Level/Stage", "Educational Qualification", "Age Limit", "Work Experience", "Additional Criteria"]
+Min 8 rows covering: Foundation, Intermediate, Final (or equivalent tiers), Special categories, Exemptions
+
+FEES TABLE:
+Headers: ["Fee Component", "Amount (₹)", "GST (₹)", "Total (₹)", "Due Date", "Late Fee"]
+Min 8 rows: Registration, Exam (per paper/level), Membership, Certificate, Reappearance, Late payment, Exemption cases
+
+EXAM PATTERN TABLE:
+Headers: ["Paper/Subject", "Questions", "Marks", "Duration", "Negative Marking", "Passing %"]
+Min 8 rows covering all papers, sections, optional subjects
+
+DATES TABLE:
+Headers: ["Event", "Start Date", "End Date", "Late Date (if any)", "Remarks"]
+Min 8 rows: Registration phases, Exam sessions, Admit card, Results, Document verification
+
+COMPARISON TABLE:
+Headers: ["Parameter", "{focus_keyword}", "Alternative 1", "Alternative 2", "Alternative 3"]
+Min 8 rows: Duration, Fees, Eligibility, Difficulty, Recognition, Career scope, Salary prospects, Pass rate
+
+SALARY TABLE:
+Headers: ["Experience", "Job Role", "Avg Salary (₹ LPA)", "Top Companies", "Growth Rate"]
+Min 8 rows: Fresher, 2-5 years, 5-10 years, 10+ years, different roles
+
+INSTITUTE TABLE:
+Headers: ["Institute", "Location", "Fees (₹)", "Duration", "Placement %", "Avg Package"]
+Min 10 rows: List top institutes with exact data
+
+6. MANDATORY ADDITIONS:
+- Add a "note" field if disclaimer needed
+- Include source references if available
+- Flag expired data: "EXPIRED: Was ₹1,000 till Dec 2024"
+
+Generate table from research. ONLY real data, no placeholders.
 
 Return ONLY valid JSON:
 {{
-  "table_title": "CMA [Topic] [Year]",
-  "headers": ["Column1", "Column2", "Column3"],
-  "rows": [["data", "data", "data"]]
+  "table_title": "{heading['h2_title']} ({current_year} Data)",
+  "headers": ["Column1", "Column2", "Column3", "Column4"],
+  "rows": [
+    ["specific data", "specific data with units", "specific data with qualifiers", "specific data"],
+    ["specific data", "specific data with units", "specific data with qualifiers", "specific data"]
+  ],
+  "note": "Source: [Official source] | Last updated: [Date] | Optional disclaimer"
 }}"""
     
     messages = [{"role": "user", "content": prompt}]
-    response, error = call_grok(messages, max_tokens=1000, temperature=0.4)
+    response, error = call_grok(messages, max_tokens=2000, temperature=0.3)
     if error:
         return None, error
     try:
         if "```json" in response:
             response = response.split("```json")[1].split("```")[0]
         return json.loads(response.strip()), None
-    except:
-        return None, "Parse error"
+    except Exception as e:
+        return None, f"Parse error: {str(e)}"
 
 def generate_faqs(focus_keyword, target_country, paa_keywords, research_context):
     if not grok_key:
         return None, "Grok required"
     
-    paa_text = "\n".join([f"- {kw}" for kw in paa_keywords[:30]])
+    current_year = datetime.now().year
+    paa_text = "\n".join([f"- {kw}" for kw in paa_keywords[:40]])
     
-    prompt = f"""Generate FAQs for: "{focus_keyword}"
+    prompt = f"""Generate 10-15 FAQs for: "{focus_keyword}" ({current_year})
 
 AUDIENCE: Students in {target_country}
-PAA: {paa_text}
-RESEARCH: {research_context[:2000]}
+CURRENT YEAR: {current_year}
+PAA KEYWORDS: {paa_text}
+RESEARCH: {research_context[:2500]}
 
-Answer questions:
-- Active voice
-- Simple language
-- Specific facts
-- 40-60 words each
+REQUIREMENTS:
+- Active voice, simple language
+- Specific facts with EXACT numbers
+- 60-80 words per answer
+- Use {current_year} data
+- NO promotional tone
+- Include source/reference where possible
+
+COVER:
+- Eligibility specifics (age ranges, qualification patterns, exceptions)
+- Fees breakdown (with GST, late fees, refunds)
+- Exam pattern details (marking, duration, calculators allowed)
+- Important dates for {current_year}
+- Career prospects (specific roles, salary ranges)
+- Comparison with alternatives (specific differences)
+- Application process (step-by-step)
+- Common concerns (attempts allowed, validity, recognition)
+- Pass percentages and trends
+- Document requirements
+
+ANSWER FORMAT:
+- Start with direct answer
+- Add specific data (numbers, dates, percentages)
+- Mention variations if applicable (by category, level, state)
+- End with source reference if available
 
 Return ONLY valid JSON:
-{{"faqs": [{{"question": "Question?", "answer": "Direct answer with facts"}}]}}"""
+{{"faqs": [{{"question": "Specific question?", "answer": "Direct answer with {current_year} data, exact numbers, and specific details. Include variations if applicable. [Source: Official source]"}}]}}"""
     
     messages = [{"role": "user", "content": prompt}]
-    response, error = call_grok(messages, max_tokens=3000, temperature=0.6)
+    response, error = call_grok(messages, max_tokens=4000, temperature=0.6)
     if error:
         return None, error
     try:
@@ -365,11 +660,7 @@ def export_to_html(article_title, meta_description, sections, faqs):
         
         if section.get('content'):
             content = section['content']
-            
-            # Process content with bold and bullets
             import re
-            
-            # Split into blocks (paragraphs and bullet lists)
             blocks = content.split('\n\n')
             
             for block in blocks:
@@ -377,62 +668,58 @@ def export_to_html(article_title, meta_description, sections, faqs):
                 if not block:
                     continue
                 
-                # Check if block contains bullet points
                 lines = block.split('\n')
-                
-                # If multiple lines start with "- ", it's a bullet list
                 bullet_count = sum(1 for line in lines if line.strip().startswith('- '))
                 
-                if bullet_count >= 2:  # It's a list
+                if bullet_count >= 2:
                     html.append('<ul>')
                     for line in lines:
                         line = line.strip()
                         if line.startswith('- '):
-                            # Remove "- " and handle bold
                             item = line[2:].strip()
                             item = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', item)
-                            html.append(f' <li>{item}</li>')
+                            html.append(f'  <li>{item}</li>')
                         elif line and not line.startswith('- '):
-                            # Text before list - output as paragraph
                             html.append('</ul>')
                             line = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', line)
                             html.append(f'<p>{line}</p>')
                             html.append('<ul>')
                     html.append('</ul>')
                 else:
-                    # Regular paragraph - handle bold
                     para = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', block)
                     html.append(f'<p>{para}</p>')
         
         if section.get('table'):
             table = section['table']
             html.append(f'<h3>{table.get("table_title", "Data")}</h3>')
-            html.append('<table>')
+            html.append('<table border="1" cellpadding="10" cellspacing="0" style="border-collapse: collapse; width: 100%; margin: 20px 0;">')
             headers = table.get('headers', [])
             rows = table.get('rows', [])
             if headers:
-                html.append(' <thead>')
-                html.append('  <tr>')
+                html.append('  <thead>')
+                html.append('    <tr style="background-color: #2c3e50; color: white;">')
                 for header in headers:
-                    html.append(f'   <th>{header}</th>')
-                html.append('  </tr>')
-                html.append(' </thead>')
+                    html.append(f'      <th style="text-align: left; padding: 12px; font-weight: bold;">{header}</th>')
+                html.append('    </tr>')
+                html.append('  </thead>')
             if rows:
-                html.append(' <tbody>')
-                for row in rows:
-                    html.append('  <tr>')
+                html.append('  <tbody>')
+                for idx, row in enumerate(rows):
+                    bg_color = '#f8f9fa' if idx % 2 == 0 else '#ffffff'
+                    html.append(f'    <tr style="background-color: {bg_color};">')
                     for cell in row:
-                        html.append(f'   <td>{cell}</td>')
-                    html.append('  </tr>')
-                html.append(' </tbody>')
+                        html.append(f'      <td style="padding: 10px; border: 1px solid #ddd;">{cell}</td>')
+                    html.append('    </tr>')
+                html.append('  </tbody>')
             html.append('</table>')
+            if table.get('note'):
+                html.append(f'<p style="font-size: 0.9em; color: #666; margin-top: 10px;"><em>Note: {table["note"]}</em></p>')
         html.append('')
     
     if faqs:
-        html.append('<h2>FAQs</h2>')
+        html.append('<h2>Frequently Asked Questions (FAQs)</h2>')
         for faq in faqs:
-            html.append(f'<h3>{faq["question"]}</h3>')
-            # Handle bullets in FAQ answers too
+            html.append(f'<h3 style="color: #2c3e50; margin-top: 20px;">{faq["question"]}</h3>')
             import re
             answer = faq["answer"]
             if '\n- ' in answer:
@@ -443,7 +730,7 @@ def export_to_html(article_title, meta_description, sections, faqs):
                         if '<ul>' not in html[-1] if html else False:
                             html.append('<ul>')
                         item = line[2:].strip()
-                        html.append(f' <li>{item}</li>')
+                        html.append(f'  <li>{item}</li>')
                     else:
                         if html and '<ul>' in html[-1]:
                             html.append('</ul>')
@@ -461,58 +748,69 @@ def export_to_html(article_title, meta_description, sections, faqs):
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["1. Research", "2. Settings", "3. Results", "4. Outline", "5. Content"])
 
 with tab1:
-    st.header("Research")
+    st.header("Research Phase")
+    st.caption("Generate comprehensive research queries and execute them")
     
     col1, col2 = st.columns([3, 1])
     with col1:
-        topic = st.text_input("Topic:", placeholder="e.g., CMA certification")
+        topic = st.text_input("Topic:", placeholder="e.g., CMA certification India")
         if topic:
             st.session_state.main_topic = topic
     with col2:
         mode = st.selectbox("Depth", ["AI Overview (simple)", "AI Mode (complex)"])
     
-    if st.button("Generate Queries", type="primary", use_container_width=True):
+    if st.button("🔍 Generate Research Queries", type="primary", use_container_width=True):
         if not topic.strip():
-            st.error("Enter topic")
+            st.error("Please enter a topic")
         elif not gemini_key:
-            st.error("Enter Gemini key")
+            st.error("Gemini API key required")
         else:
-            with st.spinner("Generating..."):
+            with st.spinner("Generating comprehensive research queries..."):
                 result, error = generate_research_queries(topic, mode)
                 if result:
                     st.session_state.fanout_results = result
                     st.session_state.selected_queries = set()
-                    st.success(f"✓ {len(result['queries'])} queries")
+                    st.success(f"✅ Generated {len(result['queries'])} research queries")
                     st.rerun()
                 else:
-                    st.error(error)
+                    st.error(f"Error: {error}")
     
     if st.session_state.fanout_results and 'queries' in st.session_state.fanout_results:
         st.markdown("---")
         queries = st.session_state.fanout_results['queries']
-        st.subheader(f"Queries ({len(queries)})")
+        st.subheader(f"Research Queries ({len(queries)})")
         
         categories = sorted(list(set(q.get('category', 'Unknown') for q in queries)))
-        selected_cats = st.multiselect("Filter:", categories, default=categories)
+        selected_cats = st.multiselect("Filter by category:", categories, default=categories, key="cat_filter")
         
         filtered = [q for q in queries if q.get('category', 'Unknown') in selected_cats]
         filtered_ids = {f"q_{queries.index(q)}" for q in filtered}
         all_selected = all(qid in st.session_state.selected_queries for qid in filtered_ids) if filtered_ids else False
         
-        select_all = st.checkbox("Select All", value=all_selected, key="select_all")
-        if select_all and not all_selected:
-            st.session_state.selected_queries.update(filtered_ids)
-            st.rerun()
-        elif not select_all and all_selected:
-            st.session_state.selected_queries.difference_update(filtered_ids)
-            st.rerun()
+        col1, col2, col3 = st.columns([2, 2, 1])
+        with col1:
+            select_all = st.checkbox("Select All Visible", value=all_selected, key="select_all")
+            if select_all and not all_selected:
+                st.session_state.selected_queries.update(filtered_ids)
+                st.rerun()
+            elif not select_all and all_selected:
+                st.session_state.selected_queries.difference_update(filtered_ids)
+                st.rerun()
+        with col2:
+            completed = sum(1 for qid in filtered_ids if qid in st.session_state.research_results)
+            st.metric("Completed", f"{completed}/{len(filtered)}")
         
         for q in filtered:
             qid = f"q_{queries.index(q)}"
-            col1, col2 = st.columns([4, 1])
+            col1, col2, col3 = st.columns([5, 1, 1])
             with col1:
                 is_selected = qid in st.session_state.selected_queries
-                selected = st.checkbox(f"**{q['query']}**", value=is_selected, key=f"cb_{qid}")
+                category_emoji = "🔍" if q.get('priority') == 'high' else "📊"
+                selected = st.checkbox(
+                    f"{category_emoji} **{q['query']}**  \n`{q.get('category', 'Unknown')}` • Priority: {q.get('priority', 'medium')}",
+                    value=is_selected,
+                    key=f"cb_{qid}"
+                )
                 if selected != is_selected:
                     if selected:
                         st.session_state.selected_queries.add(qid)
@@ -521,10 +819,11 @@ with tab1:
                     st.rerun()
             with col2:
                 if qid in st.session_state.research_results:
-                    st.success("✓")
-                elif perplexity_key:
-                    if st.button("Research", key=f"btn_{qid}"):
-                        with st.spinner("..."):
+                    st.success("✅")
+            with col3:
+                if qid not in st.session_state.research_results and perplexity_key:
+                    if st.button("Run", key=f"btn_{qid}"):
+                        with st.spinner("Researching..."):
                             res = call_perplexity(q['query'])
                             if 'choices' in res and res['choices']:
                                 st.session_state.research_results[qid] = {
@@ -536,14 +835,14 @@ with tab1:
         
         if st.session_state.selected_queries and perplexity_key:
             st.markdown("---")
-            unreserached = [qid for qid in st.session_state.selected_queries if qid not in st.session_state.research_results]
+            unresearched = [qid for qid in st.session_state.selected_queries if qid not in st.session_state.research_results]
             
-            if len(unreserached) > 0:
+            if len(unresearched) > 0:
                 if not st.session_state.bulk_research_running:
-                    if st.button(f"Research {len(unreserached)} Queries", type="secondary", use_container_width=True):
+                    if st.button(f"🚀 Research {len(unresearched)} Selected Queries", type="secondary", use_container_width=True):
                         st.session_state.bulk_research_running = True
                         st.session_state.bulk_research_progress = {
-                            'current': 0, 'total': len(unreserached), 'queries': unreserached, 'success': 0, 'errors': 0
+                            'current': 0, 'total': len(unresearched), 'queries': unresearched, 'success': 0, 'errors': 0
                         }
                         st.rerun()
                 else:
@@ -555,7 +854,7 @@ with tab1:
                         qid = prog['queries'][prog['current']]
                         q_idx = int(qid.split('_')[1])
                         q = queries[q_idx]
-                        status.info(f"({prog['current']+1}/{prog['total']}): {q['query'][:50]}...")
+                        status.info(f"🔍 ({prog['current']+1}/{prog['total']}): {q['query'][:60]}...")
                         
                         res = call_perplexity(q['query'])
                         if res and 'choices' in res and len(res['choices']) > 0:
@@ -573,51 +872,54 @@ with tab1:
                         time.sleep(2)
                         st.rerun()
                     else:
-                        st.success(f"✅ Done! Success: {prog['success']}, Errors: {prog['errors']}")
+                        st.success(f"✅ Bulk research completed! Success: {prog['success']}, Errors: {prog['errors']}")
                         if st.button("Close"):
                             st.session_state.bulk_research_running = False
                             st.session_state.bulk_research_progress = {}
                             st.rerun()
 
 with tab2:
-    st.header("Settings")
+    st.header("Article Settings")
+    st.caption("Configure focus keyword, target country, and mandatory tables")
     
-    st.subheader("Required Settings")
+    st.subheader("Core Settings")
     col1, col2 = st.columns(2)
     with col1:
-        focus_keyword = st.text_input("Focus Keyword *", placeholder="e.g., CMA certification")
+        focus_keyword = st.text_input("Focus Keyword *", placeholder="e.g., CMA certification", help="Main topic for the article")
         if focus_keyword:
             st.session_state.focus_keyword = focus_keyword
     with col2:
-        target_country = st.selectbox("Country *", ["India", "United States", "United Kingdom", "Canada", "Australia", "Global"])
+        target_country = st.selectbox("Target Country *", ["India", "United States", "United Kingdom", "Canada", "Australia", "Global"])
         st.session_state.target_country = target_country
     
     st.markdown("---")
     st.subheader("Mandatory Tables")
-    st.caption("Specify tables that MUST be included in the article")
+    st.caption("Specify tables that MUST be included. Each heading will automatically get a detailed table.")
     
     table_input = st.text_area(
         "Enter table topics (one per line):",
-        placeholder="CMA exam dates 2025\nCMA fees India\nCMA vs CPA comparison\nCMA eligibility requirements",
-        height=120
+        placeholder="CMA exam dates 2025\nCMA fees breakdown\nCMA vs CPA comparison\nCMA eligibility by level\nCMA exam centers statewise",
+        height=150,
+        help="These tables will be prioritized in the outline"
     )
     
-    if st.button("Save Table Requirements"):
+    if st.button("💾 Save Table Requirements", use_container_width=True):
         if table_input.strip():
             tables = [t.strip() for t in table_input.split('\n') if t.strip()]
             st.session_state.required_tables = tables
-            st.success(f"✓ {len(tables)} tables required")
+            st.success(f"✅ {len(tables)} mandatory tables saved")
         else:
             st.session_state.required_tables = []
-            st.info("No tables required")
+            st.info("No mandatory tables set")
     
     if st.session_state.required_tables:
-        st.write("**Required Tables:**")
-        for i, t in enumerate(st.session_state.required_tables, 1):
-            st.write(f"{i}. {t}")
+        with st.expander("📋 View Required Tables", expanded=True):
+            for i, t in enumerate(st.session_state.required_tables, 1):
+                st.write(f"{i}. {t}")
     
     st.markdown("---")
-    st.subheader("Upload Keywords")
+    st.subheader("Optional: Upload Keywords")
+    st.caption("Upload CSV files with keywords for FAQ generation")
     
     col1, col2, col3 = st.columns(3)
     
@@ -630,30 +932,30 @@ with tab2:
                     df = pd.read_csv(paa_file, encoding='utf-8')
                 except:
                     df = pd.read_csv(paa_file, encoding='utf-16')
-                col_name = df.columns[0] if len(df.columns) == 1 else st.selectbox("Column:", df.columns.tolist(), key="paa_col")
-                if st.button("Load", key="load_paa"):
+                col_name = df.columns[0] if len(df.columns) == 1 else st.selectbox("Select column:", df.columns.tolist(), key="paa_col")
+                if st.button("Load PAA", key="load_paa"):
                     paa_list = [q.strip() for q in df[col_name].dropna().astype(str).tolist() if '?' in q or len(q.split()) > 3]
                     st.session_state.paa_keywords = paa_list
-                    st.success(f"✓ {len(paa_list)}")
+                    st.success(f"✅ {len(paa_list)} keywords")
             except Exception as e:
-                st.error(str(e))
+                st.error(f"Error: {str(e)}")
     
     with col2:
-        st.caption("**Keywords**")
+        st.caption("**Keyword Combinations**")
         kw_file = st.file_uploader("CSV", type=['csv'], key="kw")
         if kw_file:
             try:
                 df = pd.read_csv(kw_file, encoding='utf-8')
-                col_name = 'Suggestion' if 'Suggestion' in df.columns else st.selectbox("Column:", df.columns.tolist(), key="kw_col")
-                if st.button("Load", key="load_kw"):
+                col_name = 'Suggestion' if 'Suggestion' in df.columns else st.selectbox("Select column:", df.columns.tolist(), key="kw_col")
+                if st.button("Load Keywords", key="load_kw"):
                     kw_list = df[col_name].dropna().astype(str).tolist()
                     st.session_state.keyword_combinations = kw_list
-                    st.success(f"✓ {len(kw_list)}")
+                    st.success(f"✅ {len(kw_list)} keywords")
             except Exception as e:
-                st.error(str(e))
+                st.error(f"Error: {str(e)}")
     
     with col3:
-        st.caption("**Google Ads**")
+        st.caption("**Google Ads Keywords**")
         gads_file = st.file_uploader("CSV", type=['csv'], key="gads")
         if gads_file:
             try:
@@ -663,150 +965,300 @@ with tab2:
                     df = pd.read_csv(gads_file, encoding='utf-8')
                 if 'Keyword' not in df.columns and len(df) > 3:
                     df = pd.read_csv(gads_file, encoding='utf-16', sep='\t', skiprows=2)
-                if 'Keyword' in df.columns and st.button("Load", key="load_gads"):
+                if 'Keyword' in df.columns and st.button("Load Ads", key="load_gads"):
                     keywords = [str(row['Keyword']).strip() for _, row in df.iterrows() if str(row['Keyword']) != 'nan']
                     st.session_state.google_ads_keywords = keywords
-                    st.success(f"✓ {len(keywords)}")
+                    st.success(f"✅ {len(keywords)} keywords")
             except Exception as e:
-                st.error(str(e))
+                st.error(f"Error: {str(e)}")
 
 with tab3:
     st.header("Research Results")
+    st.caption("View completed research data")
     
     if not st.session_state.research_results:
-        st.info("No research yet")
+        st.info("No research completed yet. Go to Research tab to start.")
     else:
         total = len(st.session_state.research_results)
-        st.metric("Completed", total)
-        
+        categories = {}
         for qid, data in st.session_state.research_results.items():
-            with st.expander(f"{data['query']}", expanded=False):
-                st.write(data['result'])
+            cat = data.get('category', 'Unknown')
+            if cat not in categories:
+                categories[cat] = []
+            categories[cat].append(data)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Total Completed", total)
+        with col2:
+            st.metric("Categories", len(categories))
+        
+        st.markdown("---")
+        
+        for cat, items in categories.items():
+            with st.expander(f"📁 {cat} ({len(items)} queries)", expanded=False):
+                for data in items:
+                    st.markdown(f"**Q:** {data['query']}")
+                    st.markdown(data['result'][:500] + "..." if len(data['result']) > 500 else data['result'])
+                    st.markdown("---")
 
 with tab4:
-    st.header("Generate Outline")
+    st.header("Generate Article Outline")
+    st.caption("Create comprehensive outline with dense table requirements")
+    
+    current_year = datetime.now().year
     
     if not st.session_state.research_results:
-        st.warning("Complete research first")
+        st.warning("⚠️ Complete research first (Tab 1)")
     elif not st.session_state.focus_keyword:
-        st.warning("Set focus keyword")
+        st.warning("⚠️ Set focus keyword in Settings (Tab 2)")
     else:
-        st.success(f"✓ {len(st.session_state.research_results)} research | Focus: {st.session_state.focus_keyword}")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Research Queries", len(st.session_state.research_results))
+        with col2:
+            st.metric("Focus Keyword", st.session_state.focus_keyword)
+        with col3:
+            st.metric("Required Tables", len(st.session_state.required_tables))
         
-        if st.session_state.required_tables:
-            st.info(f"Required tables: {len(st.session_state.required_tables)}")
+        st.markdown("---")
         
-        if st.button("Generate Outline", type="primary", use_container_width=True):
-            with st.spinner("Creating..."):
+        # Competitor analysis
+        if 'competitor_analysis_done' not in st.session_state or not st.session_state.competitor_research:
+            if st.button("🔍 Analyze Competitor Coverage", type="secondary", use_container_width=True):
+                with st.spinner("Analyzing Shiksha, CollegeDunia, Careers360, and other competitors..."):
+                    competitor_data = analyze_competitor_coverage(
+                        st.session_state.focus_keyword,
+                        st.session_state.target_country
+                    )
+                    if competitor_data:
+                        st.session_state.competitor_research = competitor_data
+                        st.session_state.competitor_analysis_done = True
+                        st.success("✅ Competitor analysis complete!")
+                        st.rerun()
+        else:
+            st.success("✅ Competitor analysis complete")
+            if st.button("👁️ View Competitor Analysis"):
+                with st.expander("Competitor Coverage Analysis", expanded=True):
+                    st.markdown(st.session_state.competitor_research)
+        
+        st.markdown("---")
+        
+        if st.button(f"📋 Generate {current_year} Outline", type="primary", use_container_width=True):
+            with st.spinner("Creating comprehensive outline with dense table specifications..."):
                 outline, error = generate_outline_from_research(
                     st.session_state.focus_keyword,
                     st.session_state.target_country,
                     st.session_state.required_tables,
-                    st.session_state.research_results
+                    st.session_state.research_results,
+                    st.session_state.competitor_research
                 )
                 if outline:
                     st.session_state.content_outline = outline
-                    st.success("✓ Ready!")
+                    st.success(f"✅ Outline ready with {len(outline.get('headings', []))} sections!")
                     st.rerun()
                 else:
-                    st.error(error)
+                    st.error(f"Error: {error}")
         
         if st.session_state.content_outline:
             st.markdown("---")
             outline = st.session_state.content_outline
-            st.text_input("Title:", value=outline['article_title'], disabled=True)
-            st.text_area("Meta:", value=outline['meta_description'], height=60, disabled=True)
             
-            for i, h in enumerate(outline['headings']):
-                with st.expander(f"{i+1}. {h['h2_title']}", expanded=False):
-                    st.write(f"**Q:** {h.get('student_question', 'N/A')}")
-                    if h.get('needs_table'):
-                        st.info(f"📊 {h.get('table_purpose', 'Table')}")
+            st.subheader("Article Structure")
+            st.text_input("📰 Title:", value=outline['article_title'], disabled=True)
+            st.text_area("📝 Meta Description:", value=outline['meta_description'], height=60, disabled=True)
+            
+            st.markdown("### Sections")
+            for i, h in enumerate(outline['headings'], 1):
+                with st.expander(f"{i}. {h['h2_title']}", expanded=False):
+                    st.write(f"**Student Question:** {h.get('student_question', 'N/A')}")
+                    st.write(f"**Key Facts:** {', '.join(h.get('key_facts', []))}")
+                    st.info(f"📊 **Table:** {h.get('table_purpose', 'Data')} ({h.get('table_type', 'listing')})  \nMin rows: {h.get('min_rows', 8)}")
+                    if h.get('table_columns'):
+                        st.write(f"**Columns:** {', '.join(h['table_columns'])}")
 
 with tab5:
     st.header("Generate Content")
+    st.caption("Generate article with DENSE-TABLE protocol")
+    
+    current_year = datetime.now().year
     
     if not st.session_state.content_outline:
-        st.warning("Generate outline first")
+        st.warning("⚠️ Generate outline first (Tab 4)")
     else:
         outline = st.session_state.content_outline
-        total = len(outline['headings'])
+        total_sections = len(outline['headings'])
         completed = len(st.session_state.generated_sections)
         
-        st.metric("Progress", f"{completed}/{total}")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Sections", total_sections)
+        with col2:
+            st.metric("Completed", completed)
+        with col3:
+            progress_pct = (completed / total_sections * 100) if total_sections > 0 else 0
+            st.metric("Progress", f"{progress_pct:.0f}%")
         
-        if st.button("Generate", type="primary", use_container_width=True):
-            research_context = "\n".join([f"{d['query']}: {d['result']}" for d in list(st.session_state.research_results.values())[:15]])
+        st.markdown("---")
+        
+        if st.button(f"🚀 Generate Complete {current_year} Article", type="primary", use_container_width=True):
+            research_context = "\n\n".join([f"**{d['query']}**\n{d['result']}" for d in list(st.session_state.research_results.values())[:25]])
             
             progress = st.progress(0)
             status = st.empty()
             
             st.session_state.generated_sections = []
             
-            # Get latest alerts for first section
-            status.text("Checking latest updates...")
+            # Get latest alerts
+            status.text(f"🔍 Checking {current_year} updates...")
             latest_alerts = get_latest_alerts(st.session_state.focus_keyword, st.session_state.target_country)
             
             for idx, heading in enumerate(outline['headings']):
-                status.text(f"Writing: {heading['h2_title'][:50]}...")
+                # Phase 1: Deep table research
+                status.text(f"📊 ({idx+1}/{total_sections}) Researching dense table data: {heading['h2_title'][:45]}...")
                 
-                # First section gets special treatment - summary with news
+                table_research = research_table_data_dense(
+                    heading,
+                    st.session_state.target_country,
+                    st.session_state.focus_keyword
+                )
+                
+                time.sleep(1)
+                
+                # Phase 2: Generate content
+                status.text(f"✍️ ({idx+1}/{total_sections}) Writing content: {heading['h2_title'][:45]}...")
+                
                 is_first = (idx == 0)
-                content, _ = generate_section_content(
-                    heading, 
-                    st.session_state.focus_keyword, 
-                    st.session_state.target_country, 
+                content, _ = generate_section_content_dense(
+                    heading,
+                    st.session_state.focus_keyword,
+                    st.session_state.target_country,
                     research_context,
+                    table_research,
                     is_first_section=is_first,
                     latest_alerts=latest_alerts if is_first else ""
                 )
                 
-                table, _ = generate_data_table(heading, st.session_state.target_country, research_context) if heading.get('needs_table') else (None, None)
-                
-                st.session_state.generated_sections.append({'heading': heading, 'content': content, 'table': table})
-                progress.progress((idx + 1) / total)
                 time.sleep(1)
+                
+                # Phase 3: Generate dense table
+                status.text(f"📋 ({idx+1}/{total_sections}) Creating dense table: {heading['h2_title'][:45]}...")
+                
+                table, table_error = generate_data_table_dense(
+                    heading,
+                    st.session_state.target_country,
+                    research_context,
+                    table_research
+                )
+                
+                if table_error:
+                    st.warning(f"Table generation issue for {heading['h2_title']}: {table_error}")
+                
+                st.session_state.generated_sections.append({
+                    'heading': heading,
+                    'content': content,
+                    'table': table
+                })
+                
+                progress.progress((idx + 1) / total_sections)
+                time.sleep(2)
             
+            # Phase 4: Generate FAQs
             if st.session_state.paa_keywords:
-                status.text("FAQs...")
-                faqs, _ = generate_faqs(st.session_state.focus_keyword, st.session_state.target_country, st.session_state.paa_keywords, research_context)
+                status.text("❓ Generating FAQs...")
+                faqs, _ = generate_faqs(
+                    st.session_state.focus_keyword,
+                    st.session_state.target_country,
+                    st.session_state.paa_keywords,
+                    research_context
+                )
                 if faqs:
                     st.session_state.generated_faqs = faqs['faqs']
             
-            status.success("Done!")
+            status.success(f"✅ Article generation complete!")
+            time.sleep(1)
             st.rerun()
         
         if st.session_state.generated_sections:
             st.markdown("---")
             st.markdown(f"# {outline['article_title']}")
+            st.caption(outline['meta_description'])
             
             total_words = 0
+            table_count = 0
+            total_rows = 0
+            
             for section in st.session_state.generated_sections:
                 st.markdown(f"## {section['heading']['h2_title']}")
+                
                 if section['content']:
                     st.markdown(section['content'])
                     total_words += len(section['content'].split())
+                
                 if section.get('table'):
                     table = section['table']
+                    table_count += 1
+                    rows = len(table.get('rows', []))
+                    total_rows += rows
+                    
                     st.markdown(f"### {table.get('table_title')}")
                     if table.get('rows') and table.get('headers'):
                         df = pd.DataFrame(table['rows'], columns=table['headers'])
                         st.dataframe(df, use_container_width=True, hide_index=True)
+                        st.caption(f"*{rows} rows*")
+                        if table.get('note'):
+                            st.info(table['note'])
+                
                 st.markdown("---")
             
             if st.session_state.generated_faqs:
-                st.markdown("## FAQs")
+                st.markdown("## Frequently Asked Questions (FAQs)")
                 for faq in st.session_state.generated_faqs:
                     st.markdown(f"### {faq['question']}")
                     st.markdown(faq['answer'])
+                    total_words += len(faq['answer'].split())
+                st.markdown("---")
             
-            st.success(f"{total_words:,} words")
+            # Stats
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("📝 Words", f"{total_words:,}")
+            with col2:
+                st.metric("📊 Tables", table_count)
+            with col3:
+                st.metric("📋 Table Rows", total_rows)
+            with col4:
+                avg_rows = total_rows / table_count if table_count > 0 else 0
+                st.metric("📈 Avg Rows/Table", f"{avg_rows:.1f}")
             
-            html = export_to_html(outline['article_title'], outline['meta_description'], st.session_state.generated_sections, st.session_state.generated_faqs)
-            st.download_button("Download HTML", data=html.encode('utf-8'), file_name=f"{st.session_state.focus_keyword.replace(' ', '_')}.html", mime="text/html", use_container_width=True)
+            st.markdown("---")
+            
+            # Export
+            html = export_to_html(
+                outline['article_title'],
+                outline['meta_description'],
+                st.session_state.generated_sections,
+                st.session_state.generated_faqs
+            )
+            
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.download_button(
+                    "📥 Download HTML Article",
+                    data=html.encode('utf-8'),
+                    file_name=f"{st.session_state.focus_keyword.replace(' ', '_')}_{current_year}.html",
+                    mime="text/html",
+                    use_container_width=True
+                )
+            with col2:
+                if st.button("🔄 Regenerate", use_container_width=True):
+                    st.session_state.generated_sections = []
+                    st.session_state.generated_faqs = []
+                    st.rerun()
 
 st.sidebar.markdown("---")
-if st.sidebar.button("Clear All"):
+st.sidebar.caption(f"Current Year: {datetime.now().year}")
+if st.sidebar.button("🗑️ Clear All Data"):
     for key in list(st.session_state.keys()):
         del st.session_state[key]
     st.rerun()
