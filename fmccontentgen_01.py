@@ -25,6 +25,8 @@ if 'main_topic' not in st.session_state: st.session_state.main_topic = ""
 if 'focus_keyword' not in st.session_state: st.session_state.focus_keyword = ""
 if 'target_country' not in st.session_state: st.session_state.target_country = ""
 if 'latest_updates' not in st.session_state: st.session_state.latest_updates = []
+if 'custom_headings' not in st.session_state: st.session_state.custom_headings = []
+if 'selected_custom_headings' not in st.session_state: st.session_state.selected_custom_headings = set()
 
 # --- API CONFIGURATION SIDEBAR ---
 st.sidebar.header("Configuration")
@@ -250,57 +252,70 @@ def get_latest_news_updates(focus_keyword, target_country, days_back=15):
     return []
 
 def generate_outline_with_keywords(focus_keyword, target_country, keyword_data, research_data):
-    """Generate outline using keywords from Google Keyword Planner"""
+    """Generate outline using researched queries as H2 headings"""
     if not model: return None, "Gemini not configured"
     
     research_summary = "\n".join([f"- {data['query']}: {data['result'][:150]}..." for data in list(research_data.values())[:15]])
     
-    # Prepare keyword list
-    keyword_list = "\n".join([f"- {kw['keyword']} (Search Vol: {kw.get('search_volume', 'N/A')})" for kw in keyword_data[:50]])
+    # Extract researched query topics to use as headings
+    researched_queries = [data['query'] for data in research_data.values()]
+    researched_queries_text = "\n".join([f"- {q}" for q in researched_queries])
+    
+    # Prepare keyword list as backup/reference
+    keyword_list = "\n".join([f"- {kw['keyword']} (Search Vol: {kw.get('search_volume', 'N/A')})" for kw in keyword_data[:50]]) if keyword_data else "No keyword data provided"
     
     prompt = f"""
     ROLE: SEO Content Architect
     TASK: Create a content outline for "{focus_keyword}"
     TARGET: {target_country} | DATE: {formatted_date}
 
-    ### AVAILABLE KEYWORDS (from Google Keyword Planner):
+    ### PRIMARY: USE RESEARCHED QUERIES AS H2 HEADINGS
+    You MUST use these researched queries as your H2 headings:
+    {researched_queries_text}
+
+    ### SECONDARY: Available Keywords (reference only):
     {keyword_list}
 
-    ### HEADING PROTOCOL (CRITICAL):
-    1. **USE EXACT KEYWORDS AS H2 HEADINGS:** Pick keywords from the list above that match user search intent.
-       - ✅ YES: "CMA Eligibility Criteria", "CMA Exam Fees", "CMA vs CPA Comparison"
-       - ❌ NO: Generic phrases like "Getting Started", "What You Need to Know"
+    ### HEADING PROTOCOL:
+    1. **USE RESEARCHED QUERIES:** H2 headings should match researched queries
+       - Use exact query or clean version
+       - Example: "What are B.Tech fees at Adamas?" → "Adamas University B.Tech Fees"
     
     2. **LOGICAL FLOW:**
-       - Start: Definition/Overview (using main keyword)
-       - Middle: Technical Details (Eligibility, Fees, Process, Syllabus)
-       - End: Outcomes (Salary, Career, Comparison)
+       - Definition/Overview → Details (Fees, Eligibility, Process) → Outcomes (Career, Salary)
     
-    3. **TABLE REQUIREMENTS:**
-       - Mark sections with data-heavy content as 'needs_table'
-       - Table purpose should specify exact data points to include
-       - Tables should present ALL relevant data points comprehensively
+    3. **TABLE DECISIONS - BE SELECTIVE:**
+       - ONLY mark 'needs_table' if heading clearly requires data breakdown
+       - If heading is "B.Tech Fees" → needs_table: true
+       - If heading is "About B.Tech" → needs_table: false
+       - If heading is "Scholarships" → needs_table: true
+       - Don't force tables where simple paragraphs work better
 
-    4. **CONTENT STRUCTURE:**
-       - Each section should have: Paragraph → Table → Paragraph pattern where relevant
-       - First paragraph introduces the topic
-       - Table presents all data
-       - Final paragraph provides context/implications
+    4. **TABLE FOCUS:**
+       - Each table MUST stay strictly on its heading topic
+       - Fee table = ONLY fees, no scholarships
+       - Eligibility table = ONLY eligibility criteria
+       - No mixing of topics in tables
+
+    5. **CONTENT EXPECTATIONS:**
+       - Sections should use ONLY explicit data from research
+       - NO invented "typical" scenarios
+       - If research lacks data for a topic, that heading might not need a table
 
     RESEARCH CONTEXT:
     {research_summary}
 
     RETURN ONLY VALID JSON:
     {{
-      "article_title": "{focus_keyword} in {target_country}: Complete Guide {current_year}",
-      "meta_description": "Comprehensive guide on {focus_keyword} covering eligibility, fees, exam pattern, and career prospects in {target_country}.",
+      "article_title": "{focus_keyword}: Complete Guide {current_year}",
+      "meta_description": "Detailed guide on {focus_keyword} covering all aspects based on official data.",
       "headings": [
         {{
-          "h2_title": "[Exact Keyword from List]",
-          "content_focus": "Specific technical details to cover",
+          "h2_title": "[Researched Query or Clean Version]",
+          "content_focus": "Specific aspects to cover based on available research data",
           "needs_table": true,
-          "table_purpose": "Present complete breakdown of [specific data]",
-          "table_type": "comparison|fees|timeline|requirements|other"
+          "table_purpose": "Present specific data for [exact topic of heading]",
+          "table_type": "fees|eligibility|timeline|comparison|syllabus"
         }}
       ]
     }}
@@ -325,43 +340,38 @@ Context Date: {formatted_date} | Target: {target_country}
 
 CRITICAL WRITING RULES:
 
-1. **SHORT SENTENCES ONLY:**
-   - Maximum 15-20 words per sentence
-   - One idea per sentence
-   - Break complex thoughts into multiple short sentences
-   - ❌ BAD: "Navigating the financial aspects of higher education can significantly impact a student's decision to pursue a B.Tech program, and understanding these options is crucial."
-   - ✅ GOOD: "Financial planning affects your B.Tech admission decision. Scholarships reduce education costs significantly."
+1. **ONLY USE EXPLICITLY STATED DATA:**
+   - ❌ NEVER invent: "Not explicitly stated; usually separate and variable"
+   - ❌ NEVER assume: "typically", "generally", "usually varies", "often includes"
+   - ✅ ONLY state what research explicitly mentions
+   - If research doesn't provide specific data, DON'T mention that aspect at all
+   - Example: If research says "Fee is ₹15,000", write that. If research doesn't mention refund policy, don't add "Refund policy varies"
 
-2. **NO CONNECTOR PHRASES OR TRANSITIONS:**
-   - ❌ Remove: "Understanding these options is crucial as...", "This section will delve into...", "It is essential to...", "Additionally...", "Furthermore...", "Moreover...", "In addition to..."
-   - ❌ Remove: "Navigating...", "Delving into...", "Exploring..."
+2. **SENTENCE LENGTH - READABLE BUT FLEXIBLE:**
+   - Aim for 12-18 words per sentence (readable length)
+   - Can go to 20-25 words if needed to complete a thought clearly
+   - Not a strict rule - prioritize clarity over exact word count
+   - Break long complex ideas into 2 sentences rather than one 30+ word sentence
+
+3. **NO VAGUE FILLER:**
+   - ❌ Remove: "varies by institution", "depends on factors", "usually separate", "may include"
+   - ❌ Remove: "typically ranges from X to Y" (unless research explicitly states the range)
+   - ✅ Use: Only concrete facts from research
+
+4. **NO CONNECTOR PHRASES:**
+   - ❌ Remove: "It is important to note", "Additionally", "Furthermore", "Moreover"
    - ✅ Use: Direct statements only
 
-3. **NO SUBHEADINGS OR INTERNAL STRUCTURE:**
-   - Do NOT create sections like "Introduction", "Core Content", "Practical Guidance"
-   - Write as ONE continuous flow of short sentences
-   - ONLY use the H2 heading provided - nothing else
-
-4. **BE DIRECT & FACTUAL:**
+5. **BE DIRECT & FACTUAL:**
    - Start immediately with facts
-   - No philosophical or abstract statements
-   - No "can", "might", "should" - use "is", "are", "has"
+   - No philosophical statements
    - State facts in present tense
+   - NO HEADING REPETITION in opening line
 
-5. **NO FLIMSY LANGUAGE:**
-   - ❌ Remove: "significantly impact", "crucial to understand", "it's important to note"
-   - ❌ Remove: "comprehensive overview", "delve into specifics", "underscores commitment"
-   - ✅ Use: Specific facts and numbers only
-
-6. **PARAGRAPH LENGTH:**
-   - 4-6 short sentences per paragraph
-   - White space between paragraphs for readability
+6. **PARAGRAPH STRUCTURE:**
+   - 4-6 sentences per paragraph
    - Each paragraph = one main topic
-
-7. **READABILITY:**
-   - Write at 8th-grade reading level
-   - Use common words, not academic jargon
-   - If technical terms needed, define them immediately
+   - White space between paragraphs
 """
 
     if is_first_section and latest_updates:
@@ -374,28 +384,26 @@ TASK: Write opening content for "{focus_keyword}"
 LATEST UPDATES (show these as bullet points at the very top):
 {updates_text}
 
-Then write 3-4 paragraphs (each 4-6 SHORT sentences):
-- What {focus_keyword} is (one sentence definition)
-- Who issues/governs it
-- Main requirements or eligibility
-- Key benefits or outcomes
-- Why it matters in {target_country}
+Then write 3-4 paragraphs (each 4-6 sentences, readable length):
+- What {focus_keyword} is (brief definition)
+- Who governs/issues it
+- Main purpose or benefit
+- Target audience in {target_country}
 
-CRITICAL:
-- NO subheadings like "Introduction", "Overview" etc.
-- NO connector phrases
-- Every sentence = max 15-20 words
-- Direct facts only
+CRITICAL RULES:
+- ONLY use facts explicitly stated in research data below
+- If research doesn't mention something, skip it entirely
+- NO invented examples or typical scenarios
+- NO "usually", "typically", "generally", "varies"
+- Keep sentences readable (12-20 words, flexible as needed)
 
 RESEARCH DATA:
 {research_context[:2500]}
-
-Write directly and simply.
 """
     else:
         table_hint = ""
         if heading.get('needs_table'):
-            table_hint = f"\n\nNote: Write the content to introduce what the data is. A table with detailed breakdown will appear after your text. Do not explain the table - just provide context."
+            table_hint = f"\n\nNote: Write content introducing this topic. A table will follow with detailed data. Keep paragraphs focused on context, not listing all data points."
         
         prompt = f"""
 {system_instruction}
@@ -404,24 +412,24 @@ TASK: Write content for: "{heading['h2_title']}"
 Focus: {heading.get('content_focus', 'Technical details')}
 {table_hint}
 
-Write 3-4 paragraphs using SHORT SENTENCES (max 15-20 words each):
-- State the main facts directly
-- Include specific numbers, amounts, dates
-- Explain what things mean practically
-- No filler, no transitions, no connectors
+Write 3-4 paragraphs (readable sentences, 12-20 words each):
+- State facts directly from research
+- Include specific numbers, dates, amounts that research provides
+- Explain what data means practically
+- No assumptions or general statements
 
-CONTENT REQUIREMENTS:
-- If FEES: Break down components, state exact amounts, mention what's included
-- If ELIGIBILITY: List requirements with specific criteria, mention alternatives
-- If PROCESS: List steps with timelines, mention documents needed
-- If SYLLABUS: List topics with marks/weightage, mention difficulty
-- If CAREER: State salary ranges, job roles, growth potential
+STRICT DATA RULES:
+- If research explicitly states fees: include exact amounts
+- If research explicitly states eligibility: list specific requirements
+- If research explicitly states process steps: mention them
+- If research doesn't provide data: DON'T invent "typical" scenarios
+- NEVER add phrases like "varies", "usually separate", "not specified"
 
 CRITICAL:
 - NO subheadings
-- NO phrases like "It's important to", "One should note", "Additionally"
-- Just direct facts in short sentences
-- Write for 8th-grade reading level
+- NO vague qualifiers
+- Only facts from research data below
+- Readable sentence length (not rigid, aim 12-20 words)
 
 RESEARCH DATA:
 {research_context[:2500]}
@@ -438,7 +446,7 @@ def generate_intelligent_table(heading, target_country, research_context):
     table_type = heading.get('table_type', 'general')
     
     prompt = f"""
-TASK: Create a COMPREHENSIVE, PRECISE data table for "{heading['h2_title']}"
+TASK: Create a FOCUSED data table STRICTLY for "{heading['h2_title']}"
 Context: {target_country} | Date: {formatted_date}
 Table Type: {table_type}
 
@@ -447,78 +455,81 @@ RESEARCH DATA:
 
 CRITICAL TABLE GENERATION RULES:
 
-1. **PRECISION & ACCURACY FIRST:**
-   - ONLY include data that is EXPLICITLY mentioned in the research data
-   - NEVER invent or assume data points
-   - If research lacks specific information, DO NOT include that row/column
-   - Every number, date, amount must be traceable to research data
-   - Better to have 3 accurate rows than 10 rows with guessed data
+1. **STRICT TOPIC FOCUS:**
+   - Table must be 100% relevant to "{heading['h2_title']}" ONLY
+   - ❌ If heading is "B.Tech Fees", DO NOT include scholarship data
+   - ❌ If heading is "Eligibility", DO NOT include fee information
+   - ✅ Stay laser-focused on the exact heading topic
+   - Better to have 3 highly relevant rows than 8 rows with mixed topics
 
-2. **BE EXTENSIVE WITHIN BOUNDS:**
-   - Include EVERY data point available in research
-   - Break down complex information into granular rows
-   - Example: Don't just say "Exam Fee: ₹10,000" - break it into "Part 1 Fee", "Part 2 Fee", "Retake Fee" if research provides this
-   - Aim for comprehensive coverage but ONLY from actual research data
+2. **ONLY EXPLICIT DATA - NO INVENTION:**
+   - ONLY include data that is EXPLICITLY stated in research
+   - ❌ NEVER add: "Varies", "Not specified", "Usually separate", "Depends on category"
+   - ❌ NEVER invent typical ranges or common scenarios
+   - ✅ If research says "₹15,000", use that exact figure
+   - ✅ If research doesn't provide specific data for a row, DON'T include that row
+   - Empty cells are NOT acceptable - if you don't have data, remove that row entirely
 
-3. **CONTEXTUAL & PRACTICAL:**
-   - Add a "Notes/Context" column to explain what data means practically
-   - Include validity periods, conditions, prerequisites
-   - Show relationships: "Required before Part 2" or "One-time only"
-   - Make table actionable - readers should understand HOW to use this information
+3. **VERIFY WITH OFFICIAL SOURCES:**
+   - Prioritize data from official university/institution websites mentioned in research
+   - Cross-reference with competitor institutions if mentioned in research
+   - Use most recent data available in research context
+   - If research cites official numbers, use those over generic statements
 
-4. **CHOOSE APPROPRIATE FORMAT BASED ON CONTENT:**
+4. **APPROPRIATE FORMAT BASED ON HEADING:**
    
-   For FEES/COSTS:
-   - Columns: [Fee Component, Amount ({target_country} Currency), Validity/When Payable, Refund Policy/Notes]
-   - Break down into: Application, Entrance, Each Exam Part, Membership, Annual, Re-examination
+   For FEES headings:
+   - Columns: [Fee Component, Amount, When Payable]
+   - Only fee components explicitly mentioned in research
    
-   For TIMELINE/DEADLINES:
-   - Columns: [Phase/Event, Date/Timeline, Duration, Prerequisites/Next Steps]
-   - Include: Registration windows, exam dates, result dates, validity periods
+   For ELIGIBILITY headings:
+   - Columns: [Requirement Type, Specific Criteria, Mandatory/Optional]
+   - Only requirements explicitly stated
    
-   For COMPARISONS:
-   - Columns: [Aspect/Feature, Option 1, Option 2, Key Difference/Recommendation]
-   - Compare meaningfully: qualifications, career paths, institutions
+   For TIMELINE headings:
+   - Columns: [Event/Phase, Date/Period, Duration]
+   - Only dates/timelines explicitly mentioned
    
-   For REQUIREMENTS/ELIGIBILITY:
-   - Columns: [Requirement Type, Specific Criteria, Mandatory/Optional, Acceptable Alternatives]
-   - Break by: Education, Experience, Other qualifications, Documents
+   For COMPARISON headings:
+   - Columns: [Aspect, Option 1, Option 2]
+   - Only comparison points explicitly made in research
    
    For SYLLABUS/TOPICS:
-   - Columns: [Section/Paper, Topics Covered, Weightage/Marks, Difficulty Level/Focus Areas]
-   - Detail each subject/paper separately
+   - Columns: [Subject/Paper, Topics, Marks/Weightage]
+   - Only subjects explicitly detailed
 
-5. **COMPLETENESS CHECK:**
-   - For fees: Have you included ALL fee components mentioned in research?
-   - For eligibility: Have you listed ALL criteria from research?
-   - For process: Have you covered ALL steps mentioned?
-   - Minimum 5 rows ONLY if research data supports it
-   - If research only provides 3 data points, create 3 excellent rows
+5. **QUALITY OVER QUANTITY:**
+   - 3 accurate, focused rows > 10 rows with vague/off-topic data
+   - If research only provides 2 solid data points, make 2 rows
+   - Don't pad the table with generic information
 
-6. **FORMATTING:**
-   - Use clear, specific headers
-   - Include units in headers (₹, $, %, months, years)
-   - Keep cells concise but complete
-   - Use "N/A" sparingly - only when truly not applicable
-   - Add footer note for data source date or important caveats
+6. **NO VAGUE LANGUAGE IN CELLS:**
+   - ❌ "Varies by category", "Depends on program", "Typically ranges from..."
+   - ❌ "Not explicitly stated", "Usually separate", "May vary"
+   - ✅ "₹15,000", "Bachelor's degree with 50%", "May 2025"
+   - ✅ If you can't be specific, don't include that row
 
-7. **RECENCY & RELEVANCE:**
-   - Mark outdated information clearly
-   - If deadline has passed relative to {formatted_date}, note "Closed" or show next occurrence
-   - Prioritize current/upcoming information over historical
+7. **FORMATTING:**
+   - Clear, specific headers with units
+   - Concise cells (under 15 words each)
+   - Footer note ONLY if needed for critical context from research
 
-QUALITY OVER QUANTITY:
-A table with 4 accurate, well-contextualized rows is FAR BETTER than a table with 8 rows containing vague or invented data.
+8. **RECENCY CHECK:**
+   - Use data current to {formatted_date}
+   - If deadline passed, mark "Closed" or show next date
+   - Prioritize current year data
+
+REMEMBER: This table is ONLY for "{heading['h2_title']}" - stay strictly on topic.
 
 Return ONLY valid JSON:
 {{
-  "table_title": "Specific, Descriptive Title (e.g., 'CMA Exam Fee Breakdown 2025')",
-  "headers": ["Column 1", "Column 2", "Column 3", "Column 4"],
+  "table_title": "Specific Title for {heading['h2_title']}",
+  "headers": ["Column 1", "Column 2", "Column 3"],
   "rows": [
-      ["Precise Data 1A", "Precise Data 1B", "Context 1C", "Notes 1D"],
-      ["Precise Data 2A", "Precise Data 2B", "Context 2C", "Notes 2D"]
+      ["Explicit Data 1A", "Explicit Data 1B", "Explicit Data 1C"],
+      ["Explicit Data 2A", "Explicit Data 2B", "Explicit Data 2C"]
   ],
-  "footer_note": "Source date, important caveat, or clarification about the data"
+  "footer_note": "Only if critical context needed from research"
 }}
 """
     
@@ -533,21 +544,36 @@ Return ONLY valid JSON:
     except:
         return None, "Parse error"
 
-def generate_faqs(focus_keyword, target_country, paa_keywords, research_context):
+def generate_faqs(focus_keyword, target_country, paa_keywords, research_context, researched_queries):
     if not grok_key: return None, "Grok required"
-    paa_text = "\n".join([f"- {kw}" for kw in paa_keywords[:30]])
+    
+    # Combine researched queries and PAA keywords
+    researched_text = "\n".join([f"- {q}" for q in researched_queries[:20]]) if researched_queries else ""
+    paa_text = "\n".join([f"- {kw}" for kw in paa_keywords[:20]]) if paa_keywords else ""
+    
+    combined_questions = f"""
+RESEARCHED QUERIES (PRIORITY - use these first):
+{researched_text}
+
+PAA Keywords (additional context):
+{paa_text}
+"""
+    
     prompt = f"""Generate 8-10 FAQs for: "{focus_keyword}"
     Target: {target_country} | Date: {formatted_date}
     
-    PAA Keywords to address:
-    {paa_text}
+    QUESTIONS TO ADDRESS:
+    {combined_questions}
     
-    RESEARCH: {research_context[:2000]}
+    RESEARCH DATA:
+    {research_context[:2500]}
     
     RULES:
-    - Answer with specific facts and numbers
-    - Keep answers direct and concise (2-3 sentences)
+    - Prioritize questions from researched queries (convert them to FAQ format)
+    - Answer with specific facts and numbers from research
+    - Keep answers direct and concise (2-3 short sentences, max 20 words each)
     - No filler phrases
+    - If a researched query is "What are CMA fees?", FAQ should be similar or exactly that
     
     Return ONLY valid JSON:
     {{"faqs": [{{"question": "Question?", "answer": "Direct answer with facts"}}]}}"""
@@ -660,6 +686,45 @@ with tab1:
     st.header("Research Phase")
     st.info(f"Current Context Date: **{formatted_date}**")
     
+    # Custom Headings Section
+    st.subheader("Option 1: Add Your Own Headings")
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        custom_heading_input = st.text_input("Add Custom Heading/Query:", placeholder="e.g., Adamas University B.Tech Fees")
+    with col2:
+        if st.button("➕ Add Heading", use_container_width=True):
+            if custom_heading_input.strip():
+                heading_id = f"custom_{len(st.session_state.custom_headings)}"
+                st.session_state.custom_headings.append({
+                    'id': heading_id,
+                    'query': custom_heading_input.strip(),
+                    'category': 'Custom'
+                })
+                st.rerun()
+    
+    # Display custom headings
+    if st.session_state.custom_headings:
+        st.markdown("**Your Custom Headings:**")
+        for heading in st.session_state.custom_headings:
+            col1, col2, col3 = st.columns([3, 1, 1])
+            with col1:
+                is_selected = heading['id'] in st.session_state.selected_custom_headings
+                if st.checkbox(f"**{heading['query']}**", value=is_selected, key=f"custom_{heading['id']}"):
+                    st.session_state.selected_custom_headings.add(heading['id'])
+                else:
+                    st.session_state.selected_custom_headings.discard(heading['id'])
+            with col2:
+                if heading['id'] in st.session_state.research_results:
+                    st.success("✓ Done")
+            with col3:
+                if st.button("🗑️", key=f"del_{heading['id']}", help="Delete this heading"):
+                    st.session_state.custom_headings = [h for h in st.session_state.custom_headings if h['id'] != heading['id']]
+                    st.session_state.selected_custom_headings.discard(heading['id'])
+                    st.rerun()
+    
+    st.markdown("---")
+    st.subheader("Option 2: AI-Generated Research Queries")
+    
     col1, col2 = st.columns([3, 1])
     with col1:
         topic = st.text_input("Topic:", placeholder="e.g., CMA certification")
@@ -709,15 +774,27 @@ with tab1:
                 if qid in st.session_state.research_results:
                     st.success("✓ Done")
         
-        if st.session_state.selected_queries and perplexity_key:
-            unresearched = [qid for qid in st.session_state.selected_queries if qid not in st.session_state.research_results]
+        # Combined research button for both AI and custom queries
+        st.markdown("---")
+        all_selected = st.session_state.selected_queries.union(st.session_state.selected_custom_headings)
+        if all_selected and perplexity_key:
+            unresearched = [qid for qid in all_selected if qid not in st.session_state.research_results]
             if unresearched:
-                if st.button(f"Research {len(unresearched)} Queries", type="secondary", use_container_width=True):
+                if st.button(f"🔍 Research {len(unresearched)} Selected Queries", type="secondary", use_container_width=True):
                     progress_bar = st.progress(0)
                     status = st.empty()
                     for i, qid in enumerate(unresearched):
-                        q_idx = int(qid.split('_')[1])
-                        q_text = queries[q_idx]['query']
+                        # Handle both AI-generated and custom queries
+                        if qid.startswith('custom_'):
+                            # Custom heading
+                            custom_h = next((h for h in st.session_state.custom_headings if h['id'] == qid), None)
+                            if custom_h:
+                                q_text = custom_h['query']
+                        else:
+                            # AI-generated query
+                            q_idx = int(qid.split('_')[1])
+                            q_text = queries[q_idx]['query']
+                        
                         status.text(f"Researching: {q_text}...")
                         
                         res = call_perplexity(q_text)
@@ -730,6 +807,29 @@ with tab1:
                         time.sleep(1)  # Rate limiting
                     st.success("Research Complete!")
                     st.rerun()
+    elif st.session_state.selected_custom_headings and perplexity_key:
+        # Show research button even if only custom headings are selected
+        unresearched = [qid for qid in st.session_state.selected_custom_headings if qid not in st.session_state.research_results]
+        if unresearched:
+            if st.button(f"🔍 Research {len(unresearched)} Custom Headings", type="secondary", use_container_width=True):
+                progress_bar = st.progress(0)
+                status = st.empty()
+                for i, qid in enumerate(unresearched):
+                    custom_h = next((h for h in st.session_state.custom_headings if h['id'] == qid), None)
+                    if custom_h:
+                        q_text = custom_h['query']
+                        status.text(f"Researching: {q_text}...")
+                        
+                        res = call_perplexity(q_text)
+                        if res and 'choices' in res:
+                            st.session_state.research_results[qid] = {
+                                'query': q_text,
+                                'result': res['choices'][0]['message']['content']
+                            }
+                        progress_bar.progress((i + 1) / len(unresearched))
+                        time.sleep(1)
+                st.success("Research Complete!")
+                st.rerun()
 
 with tab2:
     st.header("Target Settings & Keywords")
@@ -805,20 +905,23 @@ with tab3:
 with tab4:
     st.header("Content Outline Generation")
     
-    if not st.session_state.keyword_planner_data:
-        st.warning("⚠️ Please upload Google Keyword Planner data in Tab 2 to generate keyword-driven headings.")
+    has_research = bool(st.session_state.research_results)
+    has_keywords = bool(st.session_state.keyword_planner_data)
     
-    if st.button("Generate Outline", type="primary", disabled=not st.session_state.keyword_planner_data):
+    if not has_research:
+        st.warning("⚠️ Please complete research in Tab 1 first.")
+    elif not has_keywords:
+        st.info("💡 Keyword Planner data not uploaded. Outline will use researched queries as headings.")
+    
+    if st.button("Generate Outline", type="primary", disabled=not has_research):
         if not st.session_state.research_results:
             st.error("Please complete research first (Tab 1).")
-        elif not st.session_state.keyword_planner_data:
-            st.error("Please upload keyword data (Tab 2).")
         else:
-            with st.spinner("Creating keyword-driven outline..."):
+            with st.spinner("Creating outline from researched queries..."):
                 outline, error = generate_outline_with_keywords(
                     st.session_state.focus_keyword,
                     st.session_state.target_country,
-                    st.session_state.keyword_planner_data,
+                    st.session_state.keyword_planner_data or [],
                     st.session_state.research_results
                 )
                 if outline:
@@ -903,17 +1006,18 @@ with tab5:
                 progress.progress((idx + 1) / total_sections)
                 time.sleep(0.5)
             
-            # Generate FAQs if PAA data exists
-            if st.session_state.paa_keywords:
-                status.text("Generating FAQs...")
-                faqs, _ = generate_faqs(
-                    st.session_state.focus_keyword, 
-                    st.session_state.target_country, 
-                    st.session_state.paa_keywords, 
-                    research_context
-                )
-                if faqs: 
-                    st.session_state.generated_faqs = faqs.get('faqs', [])
+            # Generate FAQs - always generate, prioritizing researched queries
+            status.text("Generating FAQs...")
+            researched_queries = [data['query'] for data in st.session_state.research_results.values()]
+            faqs, _ = generate_faqs(
+                st.session_state.focus_keyword, 
+                st.session_state.target_country, 
+                st.session_state.paa_keywords, 
+                research_context,
+                researched_queries
+            )
+            if faqs: 
+                st.session_state.generated_faqs = faqs.get('faqs', [])
             
             status.success("✅ Article generation complete!")
             time.sleep(1)
