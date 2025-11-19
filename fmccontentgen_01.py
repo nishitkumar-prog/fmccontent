@@ -131,6 +131,7 @@ def optimize_headings_batch(queries):
     - Use Title Case
     - Keep it professional
     - Return JSON mapping original query to new heading
+    - IF the query is already short, keep it as is but ensure Title Case.
     
     QUERIES:
     {json.dumps(unique_queries)}
@@ -142,11 +143,36 @@ def optimize_headings_batch(queries):
         text = response.text.strip()
         if "\`\`\`json" in text:
             text = text.split("\`\`\`json")[1].split("\`\`\`")[0]
+        elif "\`\`\`" in text: # Handle case where json tag is missing
+             text = text.split("\`\`\`")[1].split("\`\`\`")[0]
+             
         result = json.loads(text)
-        return result.get('mappings', {q: q for q in queries})
+        mappings = result.get('mappings', {})
+        
+        # Fallback: if mapping missing or same as key, try simple heuristic
+        final_map = {}
+        for q in queries:
+            if q in mappings and len(mappings[q].split()) < 10:
+                final_map[q] = mappings[q]
+            else:
+                # Fallback heuristic if AI fails or returns long text
+                # Remove common prompt phrases
+                clean = re.sub(r'^(What is|Provide|Explain|Describe|Compare|List|Detailed)\s+', '', q, flags=re.IGNORECASE)
+                clean = clean.split('?')[0].strip()
+                if len(clean.split()) > 8:
+                    clean = " ".join(clean.split()[:8]) + "..."
+                final_map[q] = clean.title()
+                
+        return final_map
     except Exception as e:
         print(f"Heading optimization error: {e}")
-        return {q: q for q in queries}
+        # Fallback heuristic
+        final_map = {}
+        for q in queries:
+             clean = re.sub(r'^(What is|Provide|Explain|Describe|Compare|List|Detailed)\s+', '', q, flags=re.IGNORECASE)
+             clean = clean.split('?')[0].strip()
+             final_map[q] = clean.title()
+        return final_map
 
 def generate_optimized_headings(research_results):
     """Convert long research queries into concise SEO H2s"""
@@ -1123,6 +1149,10 @@ with tab3:
                 original_q = data['query']
                 short_h2 = optimized_map.get(original_q, original_q)
                 
+                # Double check length
+                if len(short_h2.split()) > 10:
+                     short_h2 = " ".join(short_h2.split()[:8]).title()
+
                 headings.append({
                     'qid': qid,
                     'h2_title': short_h2,
