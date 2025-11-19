@@ -4,12 +4,12 @@ import pandas as pd
 import json
 import requests
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 import re
 
 # --- APP CONFIGURATION ---
 st.set_page_config(page_title="SEO Content Generator", layout="wide")
-st.title("SEO Content Generator (Dense-Table Protocol)")
+st.title("SEO Content Generator (Keyword-Driven)")
 
 # --- SESSION STATE INITIALIZATION ---
 if 'fanout_results' not in st.session_state: st.session_state.fanout_results = None
@@ -17,16 +17,14 @@ if 'research_results' not in st.session_state: st.session_state.research_results
 if 'selected_queries' not in st.session_state: st.session_state.selected_queries = set()
 if 'content_outline' not in st.session_state: st.session_state.content_outline = None
 if 'paa_keywords' not in st.session_state: st.session_state.paa_keywords = []
-if 'keyword_combinations' not in st.session_state: st.session_state.keyword_combinations = []
+if 'keyword_planner_data' not in st.session_state: st.session_state.keyword_planner_data = None
 if 'google_ads_keywords' not in st.session_state: st.session_state.google_ads_keywords = []
 if 'generated_sections' not in st.session_state: st.session_state.generated_sections = []
 if 'generated_faqs' not in st.session_state: st.session_state.generated_faqs = []
 if 'main_topic' not in st.session_state: st.session_state.main_topic = ""
 if 'focus_keyword' not in st.session_state: st.session_state.focus_keyword = ""
 if 'target_country' not in st.session_state: st.session_state.target_country = ""
-if 'required_tables' not in st.session_state: st.session_state.required_tables = []
-if 'bulk_research_running' not in st.session_state: st.session_state.bulk_research_running = False
-if 'bulk_research_progress' not in st.session_state: st.session_state.bulk_research_progress = {}
+if 'latest_updates' not in st.session_state: st.session_state.latest_updates = []
 
 # --- API CONFIGURATION SIDEBAR ---
 st.sidebar.header("Configuration")
@@ -88,7 +86,6 @@ def call_perplexity(query, system_prompt=None, max_retries=2):
 
 def call_grok(messages, max_tokens=4000, temperature=0.6):
     if not grok_key: return None, "Missing API key"
-    # Use Grok API URL (Verify specifically if it is x.ai or standard OpenAI compatible endpoint)
     GROK_API_URL = "https://api.x.ai/v1/chat/completions" 
     
     headers = {"Authorization": f"Bearer {grok_key}", "Content-Type": "application/json"}
@@ -120,47 +117,130 @@ def generate_research_queries(topic, mode="AI Overview (simple)"):
     except Exception as e:
         return None, str(e)
 
-# --- OPTIMIZED OUTLINE GENERATOR (STRICT KEYWORDS) ---
-def generate_outline_from_research(focus_keyword, target_country, required_tables, research_data):
+def parse_keyword_planner_csv(df):
+    """Parse Google Keyword Planner CSV and extract relevant keywords"""
+    keywords = []
+    
+    # Common column names in Google Keyword Planner exports
+    keyword_col = None
+    search_vol_col = None
+    
+    for col in df.columns:
+        col_lower = col.lower()
+        if 'keyword' in col_lower and keyword_col is None:
+            keyword_col = col
+        elif 'avg' in col_lower and 'search' in col_lower:
+            search_vol_col = col
+    
+    if keyword_col:
+        for idx, row in df.iterrows():
+            kw = str(row[keyword_col]).strip()
+            if kw and kw != 'nan' and len(kw) > 2:
+                search_vol = row[search_vol_col] if search_vol_col else 0
+                keywords.append({
+                    'keyword': kw,
+                    'search_volume': search_vol,
+                    'suitable_for_heading': True
+                })
+    
+    return keywords
+
+def get_latest_news_updates(focus_keyword, target_country, days_back=15):
+    """Fetch latest news/updates from last X days"""
+    if not perplexity_key: return []
+    
+    cutoff_date = context_date - timedelta(days=days_back)
+    cutoff_str = cutoff_date.strftime("%B %d, %Y")
+    
+    query = f"""Find ONLY the latest news, updates, or announcements about {focus_keyword} in {target_country} published between {cutoff_str} and {formatted_date}. 
+    Focus on: exam dates, registration deadlines, fee changes, new regulations, policy updates.
+    If nothing significant happened in this period, say 'No major updates'.
+    Be specific with dates."""
+    
+    system_prompt = f"Current date is {formatted_date}. Return only factual updates with exact dates from the last {days_back} days. If no updates exist, clearly state that."
+    
+    res = call_perplexity(query, system_prompt=system_prompt)
+    
+    if res and 'choices' in res and len(res['choices']) > 0:
+        content = res['choices'][0]['message'].get('content', '')
+        
+        # Check if there are actual updates
+        if any(phrase in content.lower() for phrase in ['no major update', 'no significant', 'no recent', 'no new']):
+            return []
+        
+        # Extract bullet points or create them
+        updates = []
+        lines = content.split('\n')
+        for line in lines:
+            line = line.strip()
+            if line and len(line) > 20:  # Meaningful update
+                # Remove existing bullets
+                line = re.sub(r'^[-•*]\s*', '', line)
+                if line:
+                    updates.append(line)
+        
+        # Return max 2 most relevant updates
+        return updates[:2]
+    
+    return []
+
+def generate_outline_with_keywords(focus_keyword, target_country, keyword_data, research_data):
+    """Generate outline using keywords from Google Keyword Planner"""
     if not model: return None, "Gemini not configured"
     
     research_summary = "\n".join([f"- {data['query']}: {data['result'][:150]}..." for data in list(research_data.values())[:15]])
     
-    prompt = f"""
-    ROLE: SEO Technical Architect.
-    TASK: Structuring a content outline for "{focus_keyword}".
-    TARGET: {target_country} | ANCHOR DATE: {formatted_date}
-
-    ### HEADING PROTOCOL (STRICT):
-    1. **EXACT KEYWORDS ONLY:** Headings (H2) must be raw search terms or direct questions.
-       - ❌ NO Creative/Fluff: "Unlock Your Potential," "The Comprehensive Guide to..."
-       - ❌ NO Dates in H2: Do not put "{current_year}" in the heading text itself (keep it timeless).
-       - ✅ YES: "CMA Eligibility," "CMA Exam Fees," "CMA vs CPA," "CMA Salary."
+    # Prepare keyword list
+    keyword_list = "\n".join([f"- {kw['keyword']} (Search Vol: {kw.get('search_volume', 'N/A')})" for kw in keyword_data[:50]])
     
-    2. **LOGICAL FLOW:** - Start with Definition/Eligibility.
-       - Move to Technical Details (Fees, Syllabus, Pattern).
-       - End with Outcomes (Salary, Job Roles).
+    prompt = f"""
+    ROLE: SEO Content Architect
+    TASK: Create a content outline for "{focus_keyword}"
+    TARGET: {target_country} | DATE: {formatted_date}
 
-    ### MANDATORY TABLES:
-    Ensure every data-heavy section (Eligibility, Fees, Dates, Syllabus) is marked as 'needs_table'.
+    ### AVAILABLE KEYWORDS (from Google Keyword Planner):
+    {keyword_list}
+
+    ### HEADING PROTOCOL (CRITICAL):
+    1. **USE EXACT KEYWORDS AS H2 HEADINGS:** Pick keywords from the list above that match user search intent.
+       - ✅ YES: "CMA Eligibility Criteria", "CMA Exam Fees", "CMA vs CPA Comparison"
+       - ❌ NO: Generic phrases like "Getting Started", "What You Need to Know"
+    
+    2. **LOGICAL FLOW:**
+       - Start: Definition/Overview (using main keyword)
+       - Middle: Technical Details (Eligibility, Fees, Process, Syllabus)
+       - End: Outcomes (Salary, Career, Comparison)
+    
+    3. **TABLE REQUIREMENTS:**
+       - Mark sections with data-heavy content as 'needs_table'
+       - Table purpose should specify exact data points to include
+       - Tables should present ALL relevant data points comprehensively
+
+    4. **CONTENT STRUCTURE:**
+       - Each section should have: Paragraph → Table → Paragraph pattern where relevant
+       - First paragraph introduces the topic
+       - Table presents all data
+       - Final paragraph provides context/implications
 
     RESEARCH CONTEXT:
     {research_summary}
 
-    RETURN JSON ONLY:
+    RETURN ONLY VALID JSON:
     {{
-      "article_title": "{focus_keyword}: [Main Benefit/Result] ({current_year} Update)",
-      "meta_description": "Detailed breakdown of {focus_keyword} for {target_country}. Covers eligibility, fees, and exam pattern.",
+      "article_title": "{focus_keyword} in {target_country}: Complete Guide {current_year}",
+      "meta_description": "Comprehensive guide on {focus_keyword} covering eligibility, fees, exam pattern, and career prospects in {target_country}.",
       "headings": [
         {{
-          "h2_title": "[Insert Exact Keyword]",
+          "h2_title": "[Exact Keyword from List]",
           "content_focus": "Specific technical details to cover",
           "needs_table": true,
-          "table_purpose": "Full breakdown of data including [Metric 1] and [Metric 2]"
+          "table_purpose": "Present complete breakdown of [specific data]",
+          "table_type": "comparison|fees|timeline|requirements|other"
         }}
       ]
     }}
     """
+    
     try:
         response = model.generate_content(prompt)
         json_text = response.text.strip()
@@ -170,98 +250,133 @@ def generate_outline_from_research(focus_keyword, target_country, required_table
     except Exception as e:
         return None, str(e)
 
-def get_latest_alerts(focus_keyword, target_country):
-    if not perplexity_key: return ""
-    query = f"Latest news, updates, deadlines, or important announcements about {focus_keyword} in {target_country} as of {formatted_date}. Include exam dates, fee changes, new regulations."
-    system_prompt = f"Provide only the most recent and factual updates relevant to {formatted_date}. Be direct and concise."
-    res = call_perplexity(query, system_prompt=system_prompt)
-    if res and 'choices' in res and len(res['choices']) > 0:
-        return res['choices'][0]['message'].get('content', '')[:500]
-    return ""
-
-# --- OPTIMIZED CONTENT GENERATOR (NO FLUFF, NATURAL DATE) ---
-def generate_section_content(heading, focus_keyword, target_country, research_context, is_first_section=False, latest_alerts=""):
+def generate_section_content(heading, focus_keyword, target_country, research_context, is_first_section=False, latest_updates=None):
+    """Generate direct, simple content for each section"""
     if not grok_key: return None, "Grok required"
     
-    # Base System Instruction for Dense Information
     system_instruction = f"""
-    You are a technical documentation expert.
-    CONTEXT: Anchor Date is {formatted_date}. Target Country: {target_country}.
-    
-    ### STYLE RULES (CRITICAL):
-    1. **DEFINITIVE PRESENT TENSE:** Do not keep saying "As of {formatted_date}" or "According to latest info." Just state the facts.
-       - ❌ Avoid: "As per the latest update, the deadline is May."
-       - ✅ Use: "The registration deadline closes in May."
-    2. **NO GENERIC FILLER:** - If writing about 'Eligibility', do NOT list "Good communication skills." List specific degrees, CPA credits, or years of experience.
-       - If writing about 'Fees', list the exact currency amount.
-    3. **NO REPEATING HEADINGS:** Do not start the text with the heading itself.
-    4. **NO INTROS:** Start immediately with the core answer.
-    """
+You are a technical writer creating clear, direct content.
+Context Date: {formatted_date} | Target: {target_country}
 
-    if is_first_section:
+STYLE RULES:
+1. **DIRECT STATEMENTS:** State facts in present tense without attribution phrases
+   - ❌ Avoid: "According to latest data", "As of {formatted_date}", "It has been reported"
+   - ✅ Use: "The registration fee is ₹15,000", "Eligibility requires a bachelor's degree"
+
+2. **NO FILLER LANGUAGE:**
+   - ❌ Skip: "It's important to note", "One should consider", "Generally speaking"
+   - ✅ Use: Direct facts and specific details
+
+3. **SIMPLE STRUCTURE:**
+   - Short paragraphs (3-4 sentences max)
+   - One main point per paragraph
+   - Use specific numbers, dates, amounts
+
+4. **NO HEADING REPETITION:** Don't start content with the heading text
+"""
+
+    if is_first_section and latest_updates:
+        updates_text = "\n".join([f"• {update}" for update in latest_updates])
         prompt = f"""
-        {system_instruction}
-        
-        TASK: Write the specific opening paragraph for "{focus_keyword}".
-        LATEST NEWS: {latest_alerts}
-        
-        INSTRUCTIONS:
-        1. **Immediate Context:** If there is a specific deadline or exam window open RIGHT NOW ({formatted_date}), mention it in the first sentence naturally.
-        2. **Technical Definition:** Define exactly what it is, who issues it, and the primary requirement.
-        
-        RESEARCH: {research_context[:2500]}
-        """
+{system_instruction}
+
+TASK: Write opening section for "{focus_keyword}"
+
+LATEST UPDATES (include these at the very top as bullet points):
+{updates_text}
+
+Then write 2-3 paragraphs introducing the topic with:
+- What it is and who issues/governs it
+- Primary requirements or qualifications
+- Main benefits or outcomes
+
+RESEARCH: {research_context[:2000]}
+
+Format:
+[Latest updates as bullets if provided]
+
+[Introduction paragraph 1]
+
+[Introduction paragraph 2]
+"""
     else:
+        table_hint = ""
+        if heading.get('needs_table'):
+            table_hint = f"\nNote: A data table will follow this content showing {heading.get('table_purpose', 'detailed information')}. Keep content concise - table will have the details."
+        
         prompt = f"""
-        {system_instruction}
-        
-        TASK: Write high-density technical content for the keyword: "{heading['h2_title']}"
-        FOCUS: {heading.get('content_focus', 'Technical details')}
-        
-        DATA REQUIREMENTS:
-        - If covering **Fees**: Include Entrance Fee, Exam Fee, and Membership Fee separately.
-        - If covering **Eligibility**: Mention specific degree types and experience months.
-        - If covering **Syllabus**: Mention specific topic weights.
-        
-        RESEARCH: {research_context[:2000]}
-        """
+{system_instruction}
+
+TASK: Write content for: "{heading['h2_title']}"
+Focus: {heading.get('content_focus', 'Technical details')}
+{table_hint}
+
+REQUIREMENTS:
+- Write 2-3 short paragraphs
+- Include specific facts, numbers, dates
+- No generic advice or soft skills
+- If discussing fees: mention exact amounts
+- If discussing eligibility: specify degree types and experience years
+- If discussing process: list clear steps
+
+RESEARCH: {research_context[:2000]}
+"""
     
     messages = [{"role": "user", "content": prompt}]
-    # Lower temperature (0.3) for higher factual adherence
-    content, error = call_grok(messages, max_tokens=700, temperature=0.3)
+    content, error = call_grok(messages, max_tokens=800, temperature=0.3)
     return content, error
 
-# --- OPTIMIZED TABLE GENERATOR (TOTALITY CHECK) ---
-def generate_data_table(heading, target_country, research_context):
+def generate_intelligent_table(heading, target_country, research_context):
+    """Generate well-structured table with LLM deciding format"""
     if not grok_key or not heading.get('needs_table'): return None, "No table needed"
     
-    prompt = f"""
-    TASK: Generate a "Totality Data Table" for "{heading['h2_title']}".
-    CONTEXT: {target_country} | Anchor Date: {formatted_date}
-    RESEARCH: {research_context[:2500]}
-
-    ### TABLE RULES:
-    1. **NO SUMMARIES:** Do not summarize. If there are different fees for Students vs Professionals, create separate rows.
-    2. **MANDATORY COLUMNS:**
-       - **Metric/Category:** (e.g., "Entrance Fee", "Part 1 Exam")
-       - **Value ({target_country} Currency):** Exact numbers.
-       - **Validity/Condition:** (e.g., "Valid for 3 years", "Non-refundable")
-    3. **COVERAGE:** The table must cover the topic in totality. (Minimum 5 rows unless impossible).
-    4. **FRESHNESS:** If a deadline has passed relative to {formatted_date}, mark it as "Closed".
+    table_type = heading.get('table_type', 'general')
     
-    Return ONLY valid JSON:
-    {{
-      "table_title": "Detailed Breakdown: {heading['h2_title']}",
-      "headers": ["Category", "Value/Date", "Important Condition"],
-      "rows": [
-          ["Item 1", "Value 1", "Condition 1"],
-          ["Item 2", "Value 2", "Condition 2"]
-      ]
-    }}
-    """
+    prompt = f"""
+TASK: Create a comprehensive data table for "{heading['h2_title']}"
+Context: {target_country} | Date: {formatted_date}
+Table Type: {table_type}
+
+RESEARCH DATA:
+{research_context[:2500]}
+
+TABLE DESIGN RULES:
+1. **CHOOSE APPROPRIATE FORMAT:**
+   - Fees/Costs: Columns like [Fee Type, Amount, Validity, Conditions]
+   - Timeline/Deadlines: [Phase/Event, Date/Month, Duration, Notes]
+   - Comparison: [Feature, Option 1, Option 2, Option 3]
+   - Requirements: [Requirement Type, Details, Mandatory/Optional, Alternatives]
+   - Syllabus/Topics: [Section, Topics Covered, Weightage %, Key Focus Areas]
+
+2. **COMPLETENESS:**
+   - Include ALL relevant data points from research
+   - Minimum 5 rows (unless impossible)
+   - Add totals/summaries where relevant
+
+3. **CLARITY:**
+   - Use clear column headers
+   - Put units in headers (₹, $, %, months)
+   - Keep cell content concise but complete
+   - Use "N/A" only when truly not applicable
+
+4. **RECENCY:**
+   - Mark outdated information
+   - If deadline passed vs {formatted_date}, note "Closed" or "Upcoming"
+
+Return ONLY valid JSON:
+{{
+  "table_title": "Descriptive Title Explaining What Data Shows",
+  "headers": ["Column 1 Name", "Column 2 Name", "Column 3 Name"],
+  "rows": [
+      ["Data 1A", "Data 1B", "Data 1C"],
+      ["Data 2A", "Data 2B", "Data 2C"]
+  ],
+  "footer_note": "Optional note about data source or important caveat"
+}}
+"""
     
     messages = [{"role": "user", "content": prompt}]
-    response, error = call_grok(messages, max_tokens=1000, temperature=0.2)
+    response, error = call_grok(messages, max_tokens=1200, temperature=0.2)
     
     if error: return None, error
     try:
@@ -274,15 +389,24 @@ def generate_data_table(heading, target_country, research_context):
 def generate_faqs(focus_keyword, target_country, paa_keywords, research_context):
     if not grok_key: return None, "Grok required"
     paa_text = "\n".join([f"- {kw}" for kw in paa_keywords[:30]])
-    prompt = f"""Generate FAQs for: "{focus_keyword}"
-    AUDIENCE: Students in {target_country} | DATE: {formatted_date}
-    PAA: {paa_text}
+    prompt = f"""Generate 8-10 FAQs for: "{focus_keyword}"
+    Target: {target_country} | Date: {formatted_date}
+    
+    PAA Keywords to address:
+    {paa_text}
+    
     RESEARCH: {research_context[:2000]}
-    Answer questions with specific facts/numbers. No fluff.
+    
+    RULES:
+    - Answer with specific facts and numbers
+    - Keep answers direct and concise (2-3 sentences)
+    - No filler phrases
+    
     Return ONLY valid JSON:
     {{"faqs": [{{"question": "Question?", "answer": "Direct answer with facts"}}]}}"""
+    
     messages = [{"role": "user", "content": prompt}]
-    response, error = call_grok(messages, max_tokens=3000, temperature=0.6)
+    response, error = call_grok(messages, max_tokens=3000, temperature=0.5)
     if error: return None, error
     try:
         if "```json" in response:
@@ -291,56 +415,85 @@ def generate_faqs(focus_keyword, target_country, paa_keywords, research_context)
     except:
         return None, "Parse error"
 
-def export_to_html(article_title, meta_description, sections, faqs):
+def export_to_html(article_title, meta_description, sections, faqs, latest_updates):
     html = []
     html.append(f'<h1>{article_title}</h1>')
     html.append(f'<p><em>{meta_description}</em></p>')
+    
+    # Add latest updates if available
+    if latest_updates:
+        html.append('<div style="background-color: #fff3cd; padding: 15px; margin: 20px 0; border-left: 4px solid #ffc107;">')
+        html.append('<h3 style="margin-top: 0;">Latest Updates:</h3>')
+        html.append('<ul style="margin-bottom: 0;">')
+        for update in latest_updates:
+            html.append(f'<li>{update}</li>')
+        html.append('</ul>')
+        html.append('</div>')
+    
     html.append('')
     
     for section in sections:
         html.append(f'<h2>{section["heading"]["h2_title"]}</h2>')
+        
         if section.get('content'):
             content = section['content']
-            # Process content blocks for basic formatting
+            # Remove any leading bullet points from content (updates handled separately)
+            content = re.sub(r'^[•\-\*]\s+.*\n', '', content, flags=re.MULTILINE)
+            
             blocks = content.split('\n\n')
             for block in blocks:
                 block = block.strip()
                 if not block: continue
-                # Simple bold replacement
+                
+                # Format bold text
                 block = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', block)
+                
                 # Check if it's a list
-                if block.strip().startswith('- '):
+                if block.strip().startswith('- ') or block.strip().startswith('• '):
                     html.append('<ul>')
                     lines = block.split('\n')
                     for line in lines:
-                        if line.strip().startswith('- '):
-                            html.append(f' <li>{line.strip()[2:]}</li>')
+                        line = line.strip()
+                        if line.startswith(('- ', '• ')):
+                            html.append(f'  <li>{line[2:]}</li>')
                     html.append('</ul>')
                 else:
                     html.append(f'<p>{block}</p>')
         
         if section.get('table'):
             table = section['table']
-            html.append(f'<h3>{table.get("table_title", "Data")}</h3>')
-            html.append('<table border="1" style="border-collapse: collapse; width: 100%;">')
+            html.append(f'<h3>{table.get("table_title", "Data Table")}</h3>')
+            html.append('<table border="1" style="border-collapse: collapse; width: 100%; margin: 20px 0;">')
+            
             headers = table.get('headers', [])
             rows = table.get('rows', [])
+            
             if headers:
-                html.append(' <thead><tr>')
-                for header in headers: html.append(f'  <th style="padding: 8px; background-color: #f2f2f2;">{header}</th>')
-                html.append(' </tr></thead>')
+                html.append('  <thead>')
+                html.append('    <tr>')
+                for header in headers:
+                    html.append(f'      <th style="padding: 12px; background-color: #2c3e50; color: white; text-align: left;">{header}</th>')
+                html.append('    </tr>')
+                html.append('  </thead>')
+            
             if rows:
-                html.append(' <tbody>')
+                html.append('  <tbody>')
                 for row in rows:
-                    html.append('  <tr>')
-                    for cell in row: html.append(f'   <td style="padding: 8px;">{cell}</td>')
-                    html.append('  </tr>')
-                html.append(' </tbody>')
+                    html.append('    <tr>')
+                    for cell in row:
+                        html.append(f'      <td style="padding: 10px; border: 1px solid #ddd;">{cell}</td>')
+                    html.append('    </tr>')
+                html.append('  </tbody>')
+            
             html.append('</table>')
+            
+            if table.get('footer_note'):
+                html.append(f'<p style="font-size: 0.9em; color: #666; font-style: italic;">{table["footer_note"]}</p>')
+        
         html.append('')
     
     if faqs:
-        html.append('<h2>FAQs</h2>')
+        html.append('<h2>Frequently Asked Questions (FAQs)</h2>')
         for faq in faqs:
             html.append(f'<h3>{faq["question"]}</h3>')
             html.append(f'<p>{faq["answer"]}</p>')
@@ -348,7 +501,7 @@ def export_to_html(article_title, meta_description, sections, faqs):
     return '\n'.join(html)
 
 # --- MAIN UI LAYOUT ---
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["1. Research", "2. Settings", "3. Results", "4. Outline", "5. Content"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["1. Research", "2. Settings & Keywords", "3. Research Data", "4. Outline", "5. Content"])
 
 with tab1:
     st.header("Research Phase")
@@ -361,11 +514,11 @@ with tab1:
     with col2:
         mode = st.selectbox("Depth", ["AI Overview (simple)", "AI Mode (complex)"])
     
-    if st.button("Generate Queries", type="primary", use_container_width=True):
+    if st.button("Generate Research Queries", type="primary", use_container_width=True):
         if not topic.strip() or not gemini_key:
             st.error("Please enter topic and Gemini API Key")
         else:
-            with st.spinner("Generating..."):
+            with st.spinner("Generating queries..."):
                 result, error = generate_research_queries(topic, mode)
                 if result:
                     st.session_state.fanout_results = result
@@ -421,82 +574,138 @@ with tab1:
                                 'result': res['choices'][0]['message']['content']
                             }
                         progress_bar.progress((i + 1) / len(unresearched))
+                        time.sleep(1)  # Rate limiting
                     st.success("Research Complete!")
                     st.rerun()
 
 with tab2:
-    st.header("Target Settings")
+    st.header("Target Settings & Keywords")
+    
     col1, col2 = st.columns(2)
     with col1:
-        focus_keyword = st.text_input("Focus Keyword *", value=st.session_state.main_topic)
+        focus_keyword = st.text_input("Focus Keyword *", value=st.session_state.main_topic, 
+                                     placeholder="e.g., CMA certification")
         if focus_keyword: st.session_state.focus_keyword = focus_keyword
     with col2:
-        target_country = st.selectbox("Target Audience/Country *", ["India", "United States", "United Kingdom", "Canada", "Global"])
+        target_country = st.selectbox("Target Audience/Country *", 
+                                     ["India", "United States", "United Kingdom", "Canada", "Global"])
         st.session_state.target_country = target_country
     
-    st.subheader("Keyword Uploads (Optional)")
-    paa_file = st.file_uploader("Upload PAA (CSV)", type=['csv'])
-    if paa_file:
-        df = pd.read_csv(paa_file)
-        st.session_state.paa_keywords = df.iloc[:, 0].dropna().astype(str).tolist()
-        st.success(f"Loaded {len(st.session_state.paa_keywords)} PAA keywords")
+    st.markdown("---")
+    st.subheader("Upload Keywords")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**Google Keyword Planner Data** (For H2 Headings)")
+        keyword_planner_file = st.file_uploader("Upload Google Keyword Planner CSV", type=['csv'], key='kp')
+        if keyword_planner_file:
+            try:
+                df = pd.read_csv(keyword_planner_file)
+                keywords = parse_keyword_planner_csv(df)
+                st.session_state.keyword_planner_data = keywords
+                st.success(f"✓ Loaded {len(keywords)} keywords for headings")
+                
+                # Show preview
+                with st.expander("Preview Keywords"):
+                    preview_df = pd.DataFrame(keywords[:20])
+                    st.dataframe(preview_df, hide_index=True)
+            except Exception as e:
+                st.error(f"Error parsing file: {e}")
+    
+    with col2:
+        st.markdown("**People Also Ask (PAA)** (For FAQs)")
+        paa_file = st.file_uploader("Upload PAA CSV (Optional)", type=['csv'], key='paa')
+        if paa_file:
+            try:
+                df = pd.read_csv(paa_file)
+                st.session_state.paa_keywords = df.iloc[:, 0].dropna().astype(str).tolist()
+                st.success(f"✓ Loaded {len(st.session_state.paa_keywords)} PAA keywords")
+            except Exception as e:
+                st.error(f"Error: {e}")
 
 with tab3:
-    st.header("Raw Research Data")
+    st.header("Research Data")
     if st.session_state.research_results:
+        st.info(f"Total Research Queries: {len(st.session_state.research_results)}")
         for qid, data in st.session_state.research_results.items():
-            with st.expander(data['query']):
+            with st.expander(f"📊 {data['query']}", expanded=False):
                 st.write(data['result'])
     else:
-        st.info("No research data yet. Go to Tab 1.")
+        st.info("No research data yet. Complete research in Tab 1.")
 
 with tab4:
-    st.header("Content Outline")
-    if st.button("Generate Outline", type="primary"):
+    st.header("Content Outline Generation")
+    
+    if not st.session_state.keyword_planner_data:
+        st.warning("⚠️ Please upload Google Keyword Planner data in Tab 2 to generate keyword-driven headings.")
+    
+    if st.button("Generate Outline", type="primary", disabled=not st.session_state.keyword_planner_data):
         if not st.session_state.research_results:
-            st.error("Please complete research first.")
+            st.error("Please complete research first (Tab 1).")
+        elif not st.session_state.keyword_planner_data:
+            st.error("Please upload keyword data (Tab 2).")
         else:
-            with st.spinner("Architecting Outline..."):
-                outline, error = generate_outline_from_research(
+            with st.spinner("Creating keyword-driven outline..."):
+                outline, error = generate_outline_with_keywords(
                     st.session_state.focus_keyword,
                     st.session_state.target_country,
-                    [],
+                    st.session_state.keyword_planner_data,
                     st.session_state.research_results
                 )
                 if outline:
                     st.session_state.content_outline = outline
+                    st.success("✓ Outline generated!")
                     st.rerun()
                 else:
-                    st.error(error)
+                    st.error(f"Error: {error}")
 
     if st.session_state.content_outline:
         outline = st.session_state.content_outline
+        st.markdown("### 📋 Content Structure")
         st.subheader(outline['article_title'])
         st.caption(outline['meta_description'])
-        for h in outline['headings']:
-            with st.expander(f"H2: {h['h2_title']}"):
-                st.write(f"**Focus:** {h['content_focus']}")
+        
+        st.markdown("---")
+        for idx, h in enumerate(outline['headings'], 1):
+            with st.expander(f"**H2 #{idx}: {h['h2_title']}**", expanded=False):
+                st.write(f"**Content Focus:** {h['content_focus']}")
                 if h.get('needs_table'):
-                    st.info(f"📊 Table Required: {h.get('table_purpose')}")
+                    st.info(f"📊 **Table Required:** {h.get('table_purpose')}")
+                    st.caption(f"Table Type: {h.get('table_type', 'general')}")
 
 with tab5:
     st.header("Final Content Generation")
-    if st.button("Generate Article", type="primary"):
-        if not st.session_state.content_outline:
-            st.error("No outline found.")
-        else:
+    
+    if not st.session_state.content_outline:
+        st.info("Generate an outline in Tab 4 first.")
+    else:
+        if st.button("🚀 Generate Complete Article", type="primary", use_container_width=True):
             progress = st.progress(0)
             status = st.empty()
-            st.session_state.generated_sections = []
             
-            # Context Preparation
-            research_context = "\n".join([f"{d['query']}: {d['result']}" for d in list(st.session_state.research_results.values())[:15]])
-            latest_alerts = get_latest_alerts(st.session_state.focus_keyword, st.session_state.target_country)
+            st.session_state.generated_sections = []
+            st.session_state.latest_updates = []
+            
+            # Get latest updates first
+            status.text("Scanning for latest updates...")
+            latest_updates = get_latest_news_updates(
+                st.session_state.focus_keyword, 
+                st.session_state.target_country
+            )
+            st.session_state.latest_updates = latest_updates
+            
+            # Prepare research context
+            research_context = "\n\n".join([
+                f"Q: {d['query']}\nA: {d['result']}" 
+                for d in list(st.session_state.research_results.values())[:15]
+            ])
             
             total_sections = len(st.session_state.content_outline['headings'])
             
+            # Generate each section
             for idx, heading in enumerate(st.session_state.content_outline['headings']):
-                status.text(f"Writing Section {idx+1}/{total_sections}: {heading['h2_title']}...")
+                status.text(f"Writing section {idx+1}/{total_sections}: {heading['h2_title']}...")
                 
                 is_first = (idx == 0)
                 content, _ = generate_section_content(
@@ -505,46 +714,118 @@ with tab5:
                     st.session_state.target_country, 
                     research_context, 
                     is_first_section=is_first, 
-                    latest_alerts=latest_alerts if is_first else ""
+                    latest_updates=latest_updates if is_first else None
                 )
                 
                 table = None
                 if heading.get('needs_table'):
-                    status.text(f"Generating Data Table for {heading['h2_title']}...")
-                    table, _ = generate_data_table(heading, st.session_state.target_country, research_context)
+                    status.text(f"Creating data table for {heading['h2_title']}...")
+                    table, _ = generate_intelligent_table(
+                        heading, 
+                        st.session_state.target_country, 
+                        research_context
+                    )
                 
-                st.session_state.generated_sections.append({'heading': heading, 'content': content, 'table': table})
+                st.session_state.generated_sections.append({
+                    'heading': heading, 
+                    'content': content, 
+                    'table': table
+                })
+                
                 progress.progress((idx + 1) / total_sections)
+                time.sleep(0.5)
             
-            # FAQs
+            # Generate FAQs if PAA data exists
             if st.session_state.paa_keywords:
                 status.text("Generating FAQs...")
-                faqs, _ = generate_faqs(st.session_state.focus_keyword, st.session_state.target_country, st.session_state.paa_keywords, research_context)
-                if faqs: st.session_state.generated_faqs = faqs['faqs']
+                faqs, _ = generate_faqs(
+                    st.session_state.focus_keyword, 
+                    st.session_state.target_country, 
+                    st.session_state.paa_keywords, 
+                    research_context
+                )
+                if faqs: 
+                    st.session_state.generated_faqs = faqs.get('faqs', [])
             
-            status.success("Generation Complete!")
+            status.success("✅ Article generation complete!")
+            time.sleep(1)
             st.rerun()
 
+    # Display generated content
     if st.session_state.generated_sections:
-        st.markdown("## Preview")
-        for section in st.session_state.generated_sections:
-            st.markdown(f"### {section['heading']['h2_title']}")
-            st.markdown(section['content'])
-            if section.get('table'):
-                st.dataframe(pd.DataFrame(section['table']['rows'], columns=section['table']['headers']), hide_index=True)
+        st.markdown("---")
+        st.markdown("## 📄 Article Preview")
+        
+        # Show latest updates if available
+        if st.session_state.latest_updates:
+            st.markdown("### 🔔 Latest Updates")
+            for update in st.session_state.latest_updates:
+                st.markdown(f"• {update}")
             st.markdown("---")
         
+        # Show all sections
+        for section in st.session_state.generated_sections:
+            st.markdown(f"### {section['heading']['h2_title']}")
+            
+            if section.get('content'):
+                st.markdown(section['content'])
+            
+            if section.get('table'):
+                table = section['table']
+                st.markdown(f"**{table.get('table_title', 'Data Table')}**")
+                
+                df = pd.DataFrame(
+                    table['rows'], 
+                    columns=table['headers']
+                )
+                st.dataframe(df, hide_index=True, use_container_width=True)
+                
+                if table.get('footer_note'):
+                    st.caption(f"*{table['footer_note']}*")
+            
+            st.markdown("---")
+        
+        # Show FAQs
         if st.session_state.generated_faqs:
-            st.markdown("### FAQs")
+            st.markdown("### ❓ Frequently Asked Questions")
             for faq in st.session_state.generated_faqs:
                 with st.expander(faq['question']):
                     st.write(faq['answer'])
 
-        # Export
+        # Export options
+        st.markdown("---")
+        st.markdown("### 📥 Export Options")
+        
         html_content = export_to_html(
             st.session_state.content_outline['article_title'],
             st.session_state.content_outline['meta_description'],
             st.session_state.generated_sections,
-            st.session_state.generated_faqs
+            st.session_state.generated_faqs,
+            st.session_state.latest_updates
         )
-        st.download_button("Download HTML", data=html_content, file_name="article.html", mime="text/html")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.download_button(
+                "📄 Download HTML",
+                data=html_content,
+                file_name=f"{st.session_state.focus_keyword.replace(' ', '_')}_article.html",
+                mime="text/html",
+                use_container_width=True
+            )
+        
+        with col2:
+            # Create plain text version
+            text_content = f"{st.session_state.content_outline['article_title']}\n\n"
+            for section in st.session_state.generated_sections:
+                text_content += f"{section['heading']['h2_title']}\n\n"
+                if section.get('content'):
+                    text_content += f"{section['content']}\n\n"
+            
+            st.download_button(
+                "📝 Download Text",
+                data=text_content,
+                file_name=f"{st.session_state.focus_keyword.replace(' ', '_')}_article.txt",
+                mime="text/plain",
+                use_container_width=True
+            )
