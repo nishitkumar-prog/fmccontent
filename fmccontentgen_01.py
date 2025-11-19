@@ -113,6 +113,43 @@ def generate_research_queries(topic, mode="AI Overview (simple)"):
     except Exception as e:
         return None, str(e)
 
+def generate_optimized_headings(research_results):
+    """Convert long research queries into concise SEO H2s"""
+    if not model: return None
+    
+    queries_list = [data['query'] for data in research_results.values()]
+    
+    prompt = f"""You are an SEO Expert. Convert these research queries into concise, engaging H2 headings.
+
+    INPUT QUERIES:
+    {json.dumps(queries_list)}
+
+    RULES:
+    1. Transform questions into Topics (e.g., "What are the fees?" -> "Fee Structure & Costs")
+    2. Remove instructional language (e.g., "Provide a detailed comparison..." -> "Detailed Comparison")
+    3. Keep them under 8 words
+    4. Use Title Case
+    5. Make them sound professional and authoritative
+    6. Return a list of strings matching the input order exactly
+
+    Return ONLY valid JSON:
+    {{
+        "optimized_headings": [
+            "Heading 1",
+            "Heading 2"
+        ]
+    }}"""
+    
+    try:
+        response = model.generate_content(prompt)
+        text = response.text.strip()
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0]
+        data = json.loads(text.strip())
+        return data.get('optimized_headings', [])
+    except:
+        return None
+
 def call_perplexity(query, system_prompt=None, max_retries=2):
     """Call Perplexity with deep research instructions"""
     if not perplexity_key: return {"error": "Missing API key"}
@@ -1020,8 +1057,17 @@ with tab3:
         
         # Convert researched queries to outline headings
         if not st.session_state.content_outline.get('headings'):
+            
+            # Optimize headings
+            optimized_titles = []
+            if model:
+                with st.spinner("✨ Optimizing outline headings for SEO..."):
+                    optimized_titles = generate_optimized_headings(st.session_state.research_results)
+            
             headings = []
-            for qid, data in st.session_state.research_results.items():
+            research_items = list(st.session_state.research_results.items())
+            
+            for idx, (qid, data) in enumerate(research_items):
                 # Determine if it needs table or bullets
                 needs_table = True  # Default
                 custom_instruction = ""
@@ -1033,9 +1079,14 @@ with tab3:
                         needs_table = custom_h.get('content_type') == 'Table Required'
                         custom_instruction = custom_h.get('table_instruction', '')
                 
+                # Use optimized title if available, otherwise fallback to query
+                h2_title = data['query']
+                if optimized_titles and idx < len(optimized_titles):
+                    h2_title = optimized_titles[idx]
+                
                 headings.append({
                     'qid': qid,
-                    'h2_title': data['query'],
+                    'h2_title': h2_title,
                     'needs_table': needs_table,
                     'needs_bullets': not needs_table,
                     'custom_table_instruction': custom_instruction,
@@ -1043,6 +1094,8 @@ with tab3:
                 })
             
             st.session_state.content_outline['headings'] = headings
+            if optimized_titles:
+                st.success(f"✓ Optimized {len(optimized_titles)} headings for SEO")
         
         # Display outline with ability to reorder and edit
         st.markdown(f"**Total Sections:** {len(st.session_state.content_outline['headings'])}")
