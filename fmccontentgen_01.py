@@ -87,35 +87,16 @@ CRITICAL INSTRUCTIONS:
         try:
             response = requests.post("https://api.perplexity.ai/chat/completions", headers=headers, json=data, timeout=45)
             response.raise_for_status()
-            
-            if not response.text or len(response.text.strip()) == 0:
-                if attempt < max_retries - 1:
-                    time.sleep(2)
-                    continue
-                return {"error": "Empty response from API"}
-            
-            try:
-                result = response.json()
-            except json.JSONDecodeError as e:
-                if attempt < max_retries - 1:
-                    time.sleep(2)
-                    continue
-                return {"error": f"Invalid JSON response: {str(e)}"}
-                
+            result = response.json()
             if 'choices' in result and len(result['choices']) > 0:
                 return result
-            
+            return {"error": "Invalid response"}
+        except:
             if attempt < max_retries - 1:
                 time.sleep(2)
                 continue
-            return {"error": "Invalid response structure"}
-        except requests.exceptions.RequestException as e:
-            if attempt < max_retries - 1:
-                time.sleep(2)
-                continue
-            return {"error": f"Request failed: {str(e)}"}
-    
-    return {"error": "Max retries exceeded"}
+            return {"error": "Failed"}
+    return {"error": "Max retries"}
 
 def call_grok(messages, max_tokens=4000, temperature=0.6):
     if not grok_key: return None, "Missing API key"
@@ -127,22 +108,12 @@ def call_grok(messages, max_tokens=4000, temperature=0.6):
     try:
         response = requests.post(GROK_API_URL, headers=headers, json=payload, timeout=120)
         response.raise_for_status()
-        
-        if not response.text or len(response.text.strip()) == 0:
-            return None, "Empty response from Grok API"
-        
-        try:
-            result = response.json()
-        except json.JSONDecodeError as e:
-            return None, f"Invalid JSON from Grok: {str(e)}"
-            
+        result = response.json()
         if 'choices' in result and len(result['choices']) > 0:
             return result['choices'][0]['message']['content'], None
-        return None, "Invalid response structure"
-    except requests.exceptions.RequestException as e:
-        return None, f"Request error: {str(e)}"
+        return None, "Error"
     except Exception as e:
-        return None, f"Unexpected error: {str(e)}"
+        return None, str(e)
 
 def generate_research_queries(topic, mode="AI Overview (simple)"):
     if not model: return None, "Gemini not configured"
@@ -168,11 +139,11 @@ def generate_research_queries(topic, mode="AI Overview (simple)"):
     try:
         response = model.generate_content(prompt)
         json_text = response.text.strip()
-        if "\`\`\`json" in json_text:
-            json_text = json_text.split("\`\`\`json")[1].split("\`\`\`")[0]
+        if "```json" in json_text:
+            json_text = json_text.split("```json")[1].split("```")[0]
         return json.loads(json_text.strip()), None
     except Exception as e:
-        return None, f"JSON Error: {str(e)}"
+        return None, str(e)
 
 def parse_keyword_planner_csv(file_path):
     """Parse Google Keyword Planner CSV with multiple encoding support"""
@@ -339,7 +310,7 @@ def generate_outline_with_keywords(focus_keyword, target_country, keyword_data, 
     RESEARCH CONTEXT:
     {research_summary}
 
-    RETURN ONLY JSON:
+    RETURN ONLY VALID JSON:
     {{
       "article_title": "{focus_keyword}: Complete Guide {current_year}",
       "meta_description": "Detailed guide on {focus_keyword} with comprehensive data tables and structured information.",
@@ -362,8 +333,8 @@ def generate_outline_with_keywords(focus_keyword, target_country, keyword_data, 
     try:
         response = model.generate_content(prompt)
         json_text = response.text.strip()
-        if "\`\`\`json" in json_text:
-            json_text = json_text.split("\`\`\`json")[1].split("\`\`\`")[0]
+        if "```json" in json_text:
+            json_text = json_text.split("```json")[1].split("```")[0]
         return json.loads(json_text.strip()), None
     except Exception as e:
         return None, str(e)
@@ -587,8 +558,8 @@ Return ONLY valid JSON:
     
     if error: return None, error
     try:
-        if "\`\`\`json" in response:
-            response = response.split("\`\`\`json")[1].split("\`\`\`")[0]
+        if "```json" in response:
+            response = response.split("```json")[1].split("```")[0]
         return json.loads(response.strip()), None
     except:
         return None, "Parse error"
@@ -631,8 +602,8 @@ PAA Keywords (additional context):
     response, error = call_grok(messages, max_tokens=3000, temperature=0.5)
     if error: return None, error
     try:
-        if "\`\`\`json" in response:
-            response = response.split("\`\`\`json")[1].split("\`\`\`")[0]
+        if "```json" in response:
+            response = response.split("```json")[1].split("```")[0]
         return json.loads(response.strip()), None
     except:
         return None, "Parse error"
@@ -880,43 +851,70 @@ with tab1:
         # Combined research button
         st.markdown("---")
         all_selected = st.session_state.selected_queries.union(st.session_state.selected_custom_headings)
+        
+        # Debug info
+        st.caption(f"Selected: {len(all_selected)} | Perplexity Key: {'✓' if perplexity_key else '✗'}")
+        
         if all_selected and perplexity_key:
             unresearched = [qid for qid in all_selected if qid not in st.session_state.research_results]
             if unresearched:
                 if st.button(f"🔍 Research {len(unresearched)} Selected Queries", type="secondary", use_container_width=True):
                     progress_bar = st.progress(0)
                     status = st.empty()
+                    error_log = []
+                    
                     for i, qid in enumerate(unresearched):
-                        q_text = None # Initialize q_text to avoid UnboundLocalError
-                        
-                        # Handle both AI-generated and custom queries
-                        if qid.startswith('custom_'):
-                            custom_h = next((h for h in st.session_state.custom_headings if h['id'] == qid), None)
-                            if custom_h:
-                                q_text = custom_h['query']
-                                if custom_h.get('table_instruction'):
-                                    q_text = f"{q_text}. Specifically: {custom_h['table_instruction']}"
-                        else:
-                            try: # Add try/except for safe index access
+                        try:
+                            # Handle both AI-generated and custom queries
+                            if qid.startswith('custom_'):
+                                custom_h = next((h for h in st.session_state.custom_headings if h['id'] == qid), None)
+                                if custom_h:
+                                    q_text = custom_h['query']
+                                    if custom_h.get('table_instruction'):
+                                        q_text = f"{q_text}. Specifically: {custom_h['table_instruction']}"
+                                else:
+                                    error_log.append(f"Custom heading {qid} not found")
+                                    continue
+                            else:
                                 q_idx = int(qid.split('_')[1])
-                                if 0 <= q_idx < len(queries):
-                                    q_text = queries[q_idx]['query']
-                            except (ValueError, IndexError):
-                                pass
-                        
-                        if q_text: # Only proceed if we have a valid query
+                                q_text = queries[q_idx]['query']
+                            
                             status.text(f"Researching: {q_text[:80]}...")
                             
                             res = call_perplexity(q_text)
-                            if res and 'choices' in res:
+                            
+                            if res and 'choices' in res and len(res['choices']) > 0:
                                 st.session_state.research_results[qid] = {
                                     'query': q_text,
                                     'result': res['choices'][0]['message']['content']
                                 }
-                        progress_bar.progress((i + 1) / len(unresearched))
-                        time.sleep(1)
-                    st.success("Research Complete!")
+                                status.text(f"✓ Saved: {q_text[:60]}...")
+                            else:
+                                error_log.append(f"No response for: {q_text[:60]}")
+                            
+                            progress_bar.progress((i + 1) / len(unresearched))
+                            time.sleep(1)
+                        except Exception as e:
+                            error_log.append(f"Error on {qid}: {str(e)}")
+                            continue
+                    
+                    # Show results
+                    st.success(f"✓ Research Complete! Saved {len(st.session_state.research_results)} results")
+                    
+                    if error_log:
+                        with st.expander("⚠️ Errors Encountered"):
+                            for err in error_log:
+                                st.warning(err)
+                    
+                    # Force state persistence
+                    time.sleep(0.5)
                     st.rerun()
+            else:
+                st.info("All selected queries already researched!")
+        elif not perplexity_key:
+            st.error("⚠️ Please add Perplexity API Key in the sidebar")
+        elif not all_selected:
+            st.info("Select queries above to research them")
     elif st.session_state.custom_headings:
         # Show custom headings even if no AI queries generated
         st.markdown("---")
@@ -945,23 +943,45 @@ with tab1:
                 if st.button(f"🔍 Research {len(unresearched)} Custom Queries", type="secondary", use_container_width=True):
                     progress_bar = st.progress(0)
                     status = st.empty()
+                    error_log = []
+                    
                     for i, qid in enumerate(unresearched):
-                        custom_h = next((h for h in st.session_state.custom_headings if h['id'] == qid), None)
-                        if custom_h:
-                            q_text = custom_h['query']
-                            if custom_h.get('table_instruction'):
-                                q_text = f"{q_text}. Specifically: {custom_h['table_instruction']}"
-                            status.text(f"Researching: {q_text[:80]}...")
-                            
-                            res = call_perplexity(q_text)
-                            if res and 'choices' in res:
-                                st.session_state.research_results[qid] = {
-                                    'query': q_text,
-                                    'result': res['choices'][0]['message']['content']
-                                }
-                            progress_bar.progress((i + 1) / len(unresearched))
-                            time.sleep(1)
-                    st.success("Research Complete!")
+                        try:
+                            custom_h = next((h for h in st.session_state.custom_headings if h['id'] == qid), None)
+                            if custom_h:
+                                q_text = custom_h['query']
+                                if custom_h.get('table_instruction'):
+                                    q_text = f"{q_text}. Specifically: {custom_h['table_instruction']}"
+                                
+                                status.text(f"Researching: {q_text[:80]}...")
+                                
+                                res = call_perplexity(q_text)
+                                
+                                if res and 'choices' in res and len(res['choices']) > 0:
+                                    st.session_state.research_results[qid] = {
+                                        'query': q_text,
+                                        'result': res['choices'][0]['message']['content']
+                                    }
+                                    status.text(f"✓ Saved: {q_text[:60]}...")
+                                else:
+                                    error_log.append(f"No response for: {q_text[:60]}")
+                                
+                                progress_bar.progress((i + 1) / len(unresearched))
+                                time.sleep(1)
+                            else:
+                                error_log.append(f"Custom heading {qid} not found")
+                        except Exception as e:
+                            error_log.append(f"Error on {qid}: {str(e)}")
+                            continue
+                    
+                    st.success(f"✓ Research Complete! Saved {len(st.session_state.research_results)} results")
+                    
+                    if error_log:
+                        with st.expander("⚠️ Errors Encountered"):
+                            for err in error_log:
+                                st.warning(err)
+                    
+                    time.sleep(0.5)
                     st.rerun()
 
 with tab2:
