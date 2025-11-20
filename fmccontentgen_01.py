@@ -350,7 +350,7 @@ Return ONLY the H1 title, nothing else."""
         response = model.generate_content(prompt)
         h1 = response.text.strip().strip('"\'')
         if f"({current_year})" not in h1:
-            h1 = f"{h1} ({current_year})"
+            h1 = f"{article_h1} ({current_year})"
         return h1
     except:
         return f"{focus_keyword} - Complete Guide {current_year}"
@@ -893,7 +893,7 @@ def final_seo_quality_check(h1, seo_intro, sections, faqs, focus_keyword):
     if not grok_key: return True, "Skipped"
     
     # Compile full article structure
-    article_preview = f"H1: {h1}\n\n"
+    article_preview = f"H1: {article_h1}\n\n"
     article_preview += f"INTRO: {seo_intro[:200]}...\n\n"
     
     for sec in sections[:8]:  # First 8 sections for review
