@@ -1647,7 +1647,7 @@ with tab3:
                             st.caption(f"_{h3.get('content_focus', '')}_")
                         with col2:
                             new_h3_type = st.selectbox(f"Type:", ["paragraph", "bullets", "table"],
-                                                      index=["paragraph", "bullets", "table"].index(h3['content_type']),
+                                                      index=["paragraph", "bullets", "table"].index(h3.get('content_type', 'paragraph')) if h3.get('content_type', 'paragraph') in ["paragraph", "bullets", "table"] else 0,
                                                       key=f"h3type_{idx}_{h3_idx}")
                             h3['content_type'] = new_h3_type
                         with col3:
