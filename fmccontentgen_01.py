@@ -1004,53 +1004,92 @@ with tab2:
                            type="primary", use_container_width=True):
                     progress = st.progress(0)
                     status = st.empty()
+                    error_container = st.container()
                     start_time = time.time()
                     
-                    for i, qid in enumerate(unresearched):
-                        # Timer
-                        if i > 0:
-                            elapsed = time.time() - start_time
-                            avg_time = elapsed / i
-                            remaining = avg_time * (len(unresearched) - i)
-                            mins = int(remaining // 60)
-                            secs = int(remaining % 60)
-                            timer = f"⏱️ ~{mins}m {secs}s remaining"
-                        else:
-                            timer = "⏱️ Starting..."
-                        
-                        # Get query text
-                        if qid.startswith('custom_'):
-                            custom_h = next((h for h in st.session_state.custom_headings 
-                                           if h['id'] == qid), None)
-                            if custom_h:
-                                q_text = custom_h['query']
-                                if custom_h.get('table_instruction'):
-                                    q_text = f"{q_text}. Specifically: {custom_h['table_instruction']}"
+                    errors = []
+                    successful = 0
+                    
+                    try:
+                        for i, qid in enumerate(unresearched):
+                            # Timer
+                            if i > 0:
+                                elapsed = time.time() - start_time
+                                avg_time = elapsed / i
+                                remaining = avg_time * (len(unresearched) - i)
+                                mins = int(remaining // 60)
+                                secs = int(remaining % 60)
+                                timer = f"⏱️ ~{mins}m {secs}s remaining"
                             else:
+                                timer = "⏱️ Starting..."
+                            
+                            # Get query text
+                            try:
+                                if qid.startswith('custom_'):
+                                    custom_h = next((h for h in st.session_state.custom_headings 
+                                                   if h['id'] == qid), None)
+                                    if custom_h:
+                                        q_text = custom_h['query']
+                                        if custom_h.get('table_instruction'):
+                                            q_text = f"{q_text}. Specifically: {custom_h['table_instruction']}"
+                                    else:
+                                        errors.append(f"Custom heading {qid} not found")
+                                        continue
+                                else:
+                                    q_idx = int(qid.split('_')[1])
+                                    q_text = queries[q_idx]['query']
+                                
+                                status.text(f"{timer} | Researching: {q_text[:60]}...")
+                                
+                                # Call Perplexity
+                                res = call_perplexity(q_text)
+                                
+                                # Check response
+                                if res and isinstance(res, dict):
+                                    if 'error' in res:
+                                        errors.append(f"API Error for '{q_text[:40]}...': {res['error']}")
+                                        continue
+                                    elif 'choices' in res and len(res['choices']) > 0:
+                                        st.session_state.research_results[qid] = {
+                                            'query': q_text,
+                                            'result': res['choices'][0]['message']['content']
+                                        }
+                                        successful += 1
+                                    else:
+                                        errors.append(f"No data returned for: {q_text[:40]}...")
+                                else:
+                                    errors.append(f"Invalid response for: {q_text[:40]}...")
+                                
+                            except Exception as e:
+                                errors.append(f"Error processing {qid}: {str(e)}")
                                 continue
+                            
+                            progress.progress((i + 1) / len(unresearched))
+                            time.sleep(1.5)
+                        
+                        elapsed_total = time.time() - start_time
+                        mins_total = int(elapsed_total // 60)
+                        secs_total = int(elapsed_total % 60)
+                        
+                        # Show results
+                        if successful > 0:
+                            st.success(f"✅ {successful}/{len(unresearched)} queries researched in {mins_total}m {secs_total}s!")
+                        
+                        if errors:
+                            with error_container:
+                                with st.expander("⚠️ Errors Encountered", expanded=True):
+                                    for err in errors:
+                                        st.warning(err)
+                        
+                        if successful > 0:
+                            st.rerun()
                         else:
-                            q_idx = int(qid.split('_')[1])
-                            q_text = queries[q_idx]['query']
-                        
-                        status.text(f"{timer} | Researching: {q_text[:60]}...")
-                        
-                        res = call_perplexity(q_text)
-                        
-                        if res and 'choices' in res and len(res['choices']) > 0:
-                            st.session_state.research_results[qid] = {
-                                'query': q_text,
-                                'result': res['choices'][0]['message']['content']
-                            }
-                        
-                        progress.progress((i + 1) / len(unresearched))
-                        time.sleep(1.5)
+                            st.error("❌ Research failed for all queries. Check errors above.")
                     
-                    elapsed_total = time.time() - start_time
-                    mins_total = int(elapsed_total // 60)
-                    secs_total = int(elapsed_total % 60)
-                    
-                    st.success(f"✅ Research Complete in {mins_total}m {secs_total}s!")
-                    st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Critical error during research: {str(e)}")
+                        import traceback
+                        st.code(traceback.format_exc())
             else:
                 st.info("All selected queries already researched!")
         elif not perplexity_key:
