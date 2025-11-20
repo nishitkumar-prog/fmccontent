@@ -1132,6 +1132,7 @@ def export_to_html(article_title, seo_intro, sections, faqs, latest_updates):
     
     html.append('</body></html>')
     return '\n'.join(html)
+
 # --- MAIN UI ---
 tab1, tab2, tab3, tab4 = st.tabs(["1. Setup & Keywords", "2. Research Queries", "3. Outline Structure", "4. Generate Content"])
 
@@ -1632,10 +1633,16 @@ with tab3:
                     section['intro_paragraphs'] = new_intro
                 
                 with col2:
-                    current_content_type = section.get('main_content_type', 'paragraph') if section.get('main_content_type', 'paragraph') in ["table", "bullets", "paragraph"] else 'paragraph'
-                    new_main = st.selectbox("Main content type:", ["table", "bullets", "paragraph"], index=["table", "bullets", "paragraph"].index(current_content_type), key=f"main_{idx}")
-                    section['main_content_type'] = new_main
+                    # FIX: Validate content type before using .index()
+                    current_content_type = section.get('main_content_type', 'paragraph')
+                    if current_content_type not in ["table", "bullets", "paragraph"]:
+                        current_content_type = 'paragraph'
                     
+                    new_main = st.selectbox("Main content type:", 
+                                           ["table", "bullets", "paragraph"],
+                                           index=["table", "bullets", "paragraph"].index(current_content_type),
+                                           key=f"main_{idx}")
+                    section['main_content_type'] = new_main
                 
                 # H3 subsections
                 if section.get('h3_subsections'):
@@ -1643,11 +1650,16 @@ with tab3:
                     for h3_idx, h3 in enumerate(section['h3_subsections']):
                         col1, col2, col3 = st.columns([2, 1, 0.5])
                         with col1:
-                            st.write(f"• **{h3['h3']}** [{h3['content_type']}]")
+                            # FIX: Validate H3 content type
+                            h3_content_type = h3.get('content_type', 'paragraph')
+                            if h3_content_type not in ["paragraph", "bullets", "table"]:
+                                h3_content_type = 'paragraph'
+                            
+                            st.write(f"• **{h3['h3']}** [{h3_content_type}]")
                             st.caption(f"_{h3.get('content_focus', '')}_")
                         with col2:
                             new_h3_type = st.selectbox(f"Type:", ["paragraph", "bullets", "table"],
-                                                      index=["paragraph", "bullets", "table"].index(h3['content_type']),
+                                                      index=["paragraph", "bullets", "table"].index(h3_content_type),
                                                       key=f"h3type_{idx}_{h3_idx}")
                             h3['content_type'] = new_h3_type
                         with col3:
@@ -1786,6 +1798,9 @@ with tab4:
         status = st.empty()
         start_time = time.time()
         
+        # FIX: Get article_h1 FIRST before using it
+        article_h1 = st.session_state.content_outline.get('article_title', st.session_state.focus_keyword)
+        
         status.text("⏱️ Checking for latest updates...")
         latest_updates = get_latest_news_updates(st.session_state.focus_keyword, st.session_state.target_country)
         st.session_state.latest_updates = latest_updates
@@ -1794,10 +1809,10 @@ with tab4:
         existing_research_context = "\n\n".join([f"Q: {d['query']}\nA: {d['result']}" 
                                                 for d in st.session_state.research_results.values()])
         
-        # Generate SEO Introduction Paragraph
+        # Generate SEO Introduction Paragraph - FIX: Use article_h1
         status.text("⏱️ Generating SEO introduction paragraph...")
         seo_intro, intro_error = generate_seo_introduction(
-            h1,
+            article_h1,  # FIXED
             st.session_state.focus_keyword,
             existing_research_context,
             latest_updates
@@ -1808,9 +1823,6 @@ with tab4:
             seo_intro = f"{st.session_state.focus_keyword} is a comprehensive examination covering various aspects. This article provides detailed information to help candidates prepare effectively."
         
         st.session_state.seo_intro = seo_intro
-        
-        existing_research_context = "\n\n".join([f"Q: {d['query']}\nA: {d['result']}" 
-                                                for d in st.session_state.research_results.values()])
         
         st.session_state.generated_sections = []
         total = len(sections)
@@ -1904,11 +1916,10 @@ with tab4:
         )
         st.session_state.generated_faqs = faqs.get('faqs', []) if faqs else []
         
-        # Final SEO & Quality Check by Expert
+        # Final SEO & Quality Check by Expert - FIX: Use article_h1
         status.text("⏱️ Running comprehensive SEO quality review...")
-        h1 = st.session_state.content_outline['article_title']
         passed, feedback = final_seo_quality_check(
-            h1, 
+            article_h1,  # FIXED
             st.session_state.seo_intro,
             st.session_state.generated_sections, 
             st.session_state.generated_faqs,
@@ -1933,8 +1944,8 @@ with tab4:
         st.markdown("---")
         st.markdown("## 📄 Article Preview")
         
-        h1 = st.session_state.content_outline['article_title']
-        st.markdown(f"# {h1}")
+        article_h1 = st.session_state.content_outline.get('article_title', st.session_state.focus_keyword)
+        st.markdown(f"# {article_h1}")
         
         # Display SEO Introduction
         if st.session_state.get('seo_intro'):
@@ -1970,7 +1981,7 @@ with tab4:
             
             if section.get('table'):
                 table = section['table']
-                st.markdown(f"**{table.get('table_title', '')}**")
+                st.markdown(f"**{table.get('table_title','')}**")
                 df = pd.DataFrame(table['rows'], columns=table['headers'])
                 st.dataframe(df, hide_index=True, use_container_width=True)
                 if table.get('footer_note'):
@@ -1986,7 +1997,8 @@ with tab4:
         
         # Export
         st.markdown("---")
-        html = export_to_html(h1, st.session_state.get('seo_intro', ''), 
+        article_h1 = st.session_state.content_outline.get('article_title', st.session_state.focus_keyword)
+        html = export_to_html(article_h1, st.session_state.get('seo_intro', ''), 
                             st.session_state.generated_sections, 
                             st.session_state.generated_faqs, st.session_state.latest_updates)
         
@@ -1996,7 +2008,7 @@ with tab4:
                              file_name=f"{st.session_state.focus_keyword.replace(' ', '_')}.html",
                              mime="text/html", use_container_width=True)
         with col2:
-            text = f"{h1}\n\n"
+            text = f"{article_h1}\n\n"
             if st.session_state.get('seo_intro'):
                 text += f"{st.session_state.seo_intro}\n\n"
             for sec in st.session_state.generated_sections:
