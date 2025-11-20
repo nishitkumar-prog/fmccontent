@@ -350,7 +350,7 @@ Return ONLY the H1 title, nothing else."""
         response = model.generate_content(prompt)
         h1 = response.text.strip().strip('"\'')
         if f"({current_year})" not in h1:
-            h1 = f"{article_h1} ({current_year})"
+            h1 = f"{h1} ({current_year})"
         return h1
     except:
         return f"{focus_keyword} - Complete Guide {current_year}"
@@ -893,7 +893,7 @@ def final_seo_quality_check(h1, seo_intro, sections, faqs, focus_keyword):
     if not grok_key: return True, "Skipped"
     
     # Compile full article structure
-    article_preview = f"H1: {article_h1}\n\n"
+    article_preview = f"H1: {h1}\n\n"
     article_preview += f"INTRO: {seo_intro[:200]}...\n\n"
     
     for sec in sections[:8]:  # First 8 sections for review
@@ -1797,7 +1797,7 @@ with tab4:
         # Generate SEO Introduction Paragraph
         status.text("⏱️ Generating SEO introduction paragraph...")
         seo_intro, intro_error = generate_seo_introduction(
-            article_h1,
+            h1,
             st.session_state.focus_keyword,
             existing_research_context,
             latest_updates
@@ -1906,7 +1906,7 @@ with tab4:
         
         # Final SEO & Quality Check by Expert
         status.text("⏱️ Running comprehensive SEO quality review...")
-        article_h1 = st.session_state.content_outline.get('article_title', st.session_state.focus_keyword)
+        h1 = st.session_state.content_outline['article_title']
         passed, feedback = final_seo_quality_check(
             h1, 
             st.session_state.seo_intro,
@@ -1929,13 +1929,12 @@ with tab4:
         st.rerun()
     
     # Display generated content
-    # Display generated content
     if st.session_state.generated_sections:
         st.markdown("---")
         st.markdown("## 📄 Article Preview")
         
-        article_h1 = st.session_state.content_outline.get('article_title', st.session_state.focus_keyword)
-        st.markdown(f"# {article_h1}")
+        h1 = st.session_state.content_outline['article_title']
+        st.markdown(f"# {h1}")
         
         # Display SEO Introduction
         if st.session_state.get('seo_intro'):
@@ -1987,7 +1986,7 @@ with tab4:
         
         # Export
         st.markdown("---")
-        html = export_to_html(article_h1, st.session_state.get('seo_intro', ''),
+        html = export_to_html(h1, st.session_state.get('seo_intro', ''), 
                             st.session_state.generated_sections, 
                             st.session_state.generated_faqs, st.session_state.latest_updates)
         
@@ -1997,7 +1996,7 @@ with tab4:
                              file_name=f"{st.session_state.focus_keyword.replace(' ', '_')}.html",
                              mime="text/html", use_container_width=True)
         with col2:
-            text = f"{article_h1}\n\n"
+            text = f"{h1}\n\n"
             if st.session_state.get('seo_intro'):
                 text += f"{st.session_state.seo_intro}\n\n"
             for sec in st.session_state.generated_sections:
