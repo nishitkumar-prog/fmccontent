@@ -32,9 +32,22 @@ if 'h2_headings' not in st.session_state: st.session_state.h2_headings = []
 # --- API CONFIGURATION SIDEBAR ---
 st.sidebar.header("⚙️ Configuration")
 with st.sidebar.expander("🔑 API Keys", expanded=True):
-    gemini_key = st.text_input("Gemini API Key", type="password")
-    perplexity_key = st.text_input("Perplexity API Key", type="password")
-    grok_key = st.text_input("Grok API Key", type="password")
+    gemini_key = st.text_input("Gemini API Key", type="password", help="Get from Google AI Studio")
+    perplexity_key = st.text_input("Perplexity API Key", type="password", help="Get from perplexity.ai/settings")
+    grok_key = st.text_input("Grok API Key", type="password", help="Get from x.ai")
+    
+    # Show key status
+    if perplexity_key:
+        if perplexity_key.startswith('pplx-'):
+            st.success("✓ Perplexity key format valid")
+        else:
+            st.error("⚠️ Perplexity key should start with 'pplx-'")
+    
+    if grok_key:
+        if grok_key.startswith('xai-'):
+            st.success("✓ Grok key format valid")
+        else:
+            st.warning("⚠️ Grok key usually starts with 'xai-'")
 
 gemini_model = st.sidebar.selectbox("Gemini Model", ["gemini-2.0-flash-exp", "gemini-2.0-flash"], index=0)
 
@@ -143,7 +156,10 @@ Return comprehensive data with:
 - Eligibility with specific percentages/marks
 - Authoritative sources"""
     
-    headers = {"Authorization": f"Bearer {perplexity_key}", "Content-Type": "application/json"}
+    headers = {
+        "Authorization": f"Bearer {perplexity_key}", 
+        "Content-Type": "application/json"
+    }
     data = {
         "model": "sonar", 
         "messages": [
@@ -156,17 +172,30 @@ Return comprehensive data with:
         try:
             response = requests.post("https://api.perplexity.ai/chat/completions", 
                                    headers=headers, json=data, timeout=60)
+            
+            # Check for 401 Unauthorized
+            if response.status_code == 401:
+                return {"error": "Invalid API key - Check your Perplexity API key at perplexity.ai/settings"}
+            
             response.raise_for_status()
             result = response.json()
+            
             if 'choices' in result and len(result['choices']) > 0:
                 return result
-            return {"error": "Invalid response"}
+            return {"error": "Invalid response format"}
+            
+        except requests.exceptions.HTTPError as e:
+            if attempt < max_retries - 1:
+                time.sleep(2)
+                continue
+            return {"error": f"HTTP Error: {str(e)}"}
         except Exception as e:
             if attempt < max_retries - 1:
                 time.sleep(2)
                 continue
             return {"error": f"Failed: {str(e)}"}
-    return {"error": "Max retries"}
+    
+    return {"error": "Max retries exceeded"}
 
 def call_grok(messages, max_tokens=4000, temperature=0.3):
     """Call Grok with strict quality controls"""
@@ -292,13 +321,26 @@ TASK: Create H1 in format: "[Main Topic] - [Key Aspect 1], [Key Aspect 2] and [K
 
 RULES:
 - Keep aspects concise (2-4 words each)
-- Focus on what users search for: salary, fees, eligibility, scope, career
-- Examples:
-  * "BSc vs BTech Biotechnology - Salary, Scope and Career Path (2025)"
-  * "MBA Programs India - Fees, Placements and Top Colleges (2025)"
-  * "Machine Learning - Courses, Careers and Salary Guide (2025)"
+- Focus on what users search for: comparison, fees, eligibility, scope, career, process, benefits, requirements
+- Make it generic and universally applicable
+- DO NOT include specific institution names in H1
+- Identify 3-4 main aspects from research
 
-DO NOT include institution names like "Adamas University" in H1.
+FORMAT EXAMPLES (adapt pattern to any topic):
+✅ "[Topic A vs Topic B] - [Aspect 1], [Aspect 2] and [Aspect 3] (2025)"
+✅ "[Main Topic] - [Feature 1], [Feature 2] and [Feature 3] (2025)"
+✅ "[Program/Course Name] - [Info 1], [Info 2] and [Info 3] (2025)"
+
+PATTERN EXAMPLES:
+- "Topic - Comparison, Cost and Career Path (2025)"
+- "Topic - Requirements, Process and Benefits (2025)"  
+- "Topic - Features, Pricing and Use Cases (2025)"
+- "Topic - Overview, Options and Selection Guide (2025)"
+
+REMEMBER: 
+- Use actual topic name: "{focus_keyword}"
+- Extract 3-4 key aspects from research
+- Keep it natural and searchable
 
 Return ONLY the H1 title, nothing else."""
     
@@ -312,64 +354,102 @@ Return ONLY the H1 title, nothing else."""
         return f"{focus_keyword} - Complete Guide {current_year}"
 
 def convert_queries_to_h2_headings(research_data, focus_keyword):
-    """Convert long research queries into short SEO-friendly H2 headings using Grok"""
+    """Convert long research queries into natural, SEO-friendly H2 headings using Grok"""
     if not grok_key: return None
     
     queries_list = "\n".join([f"{idx+1}. {data['query']}" 
                              for idx, data in enumerate(research_data.values())])
     
-    prompt = f"""Convert these long research queries into SHORT, SEO-friendly H2 headings.
+    prompt = f"""Convert these research queries into NATURAL, SEO-OPTIMIZED H2 headings.
 
 Topic: {focus_keyword}
 
-Long queries:
+Research Queries:
 {queries_list}
 
-RULES FOR H2 HEADINGS:
-1. **Maximum 2-5 words** per heading
-2. Use keywords people actually search for
-3. Remove "[Table]" markers
-4. NO duplicate headings
-5. NO institution names (remove "Adamas", "IIT", specific college names)
-6. Make them generic and universally applicable
+CRITICAL H2 HEADING RULES:
 
-EXAMPLES OF CONVERSION:
-❌ "Analyze the historical trends (2015-2025) in student enrollment..." 
-✅ "Enrollment Trends"
+1. **NATURAL & CONTEXTUAL** (Not robotic)
+   ✅ "{focus_keyword}: Key Differences"
+   ✅ "What is the Fee Structure for {focus_keyword}?"
+   ✅ "Career Opportunities in {focus_keyword}"
+   ❌ "Key Differences" (too short, no context)
+   ❌ "Fee Structure" (lacks topic context)
 
-❌ "What are the explicit eligibility criteria (e.g., minimum marks..."
-✅ "Eligibility Criteria"
+2. **MIX FORMATS** (Variety is key)
+   - Statements: "Career Paths in [topic area]"
+   - Questions: "What are the Eligibility Criteria?"
+   - Comparisons: "Option A vs Option B: Which is Better?"
+   - Action-oriented: "How to Get Started"
 
-❌ "Provide a comprehensive list of the technical skills..."
-✅ "Technical Skills Comparison"
+3. **LENGTH: 4-8 words** (readable, not too short)
+   ✅ "Salary Comparison and Career Growth"
+   ✅ "Top Institutions Offering This Program"
+   ❌ "Salary" (too short)
+   ❌ "Comprehensive detailed analysis of salary structures..." (too long)
 
-❌ "Detail the common career paths taken by BSc Biotechnology graduates..."
-✅ "Career Paths"
+4. **INCLUDE CONTEXT** when needed
+   - Add topic name where it makes sense
+   - Make it clear what the section covers
+   - Use natural phrasing
 
-❌ "Compare the learning outcomes related to engineering principles..."
-✅ "Engineering Skills"
+5. **USE QUESTIONS** when query is asking something
+   Original: "What are the eligibility criteria..."
+   ✅ "What are the Eligibility Requirements?"
+   ❌ "Eligibility Requirements" (less engaging)
 
-GOOD H2 EXAMPLES FOR {focus_keyword}:
-- "Curriculum Differences"
-- "Salary Comparison"
-- "Career Scope"
-- "Eligibility Requirements"
-- "Specializations Available"
-- "Job Opportunities"
-- "Higher Studies Options"
+6. **NO DUPLICATES** - Make each unique
+   If two queries about similar topics, differentiate:
+   - "Fee Structure Overview"
+   - "Detailed Fee Breakdown by Component"
+
+7. **KEYWORD INTEGRATION**
+   Naturally include: {focus_keyword} or variations
+   - Use the exact topic where relevant
+   - Don't force it in every heading
+   - Keep it natural
+
+8. **REMOVE**:
+   - "[Table]" markers
+   - Specific institution names (unless topic is about specific institution)
+   - Years/date ranges (2015-2025, 2023-2025)
+   - Technical instructions ("Provide comprehensive list...")
+   - Data collection language ("Analyze...", "Provide a detailed breakdown...")
+
+PATTERN EXAMPLES (adapt to your topic):
+
+Statement Format:
+✅ "Career Opportunities and Job Prospects"
+✅ "Curriculum Structure and Course Content"
+✅ "Skills Required for Success"
+
+Question Format:
+✅ "What Makes This Program Unique?"
+✅ "How Long Does It Take?"
+✅ "Which Option is Right for You?"
+
+Comparison Format:
+✅ "Online vs Offline: Pros and Cons"
+✅ "Cost Comparison: Different Options"
+✅ "Career Outcomes: A vs B"
+
+Action-Oriented:
+✅ "How to Apply Successfully"
+✅ "Getting Started: First Steps"
+✅ "Planning Your Path Forward"
 
 Return ONLY JSON:
 {{
   "headings": [
-    {{"original_query": "full query", "h2": "Short Heading"}},
+    {{"original_query": "full original query", "h2": "Natural SEO-Friendly Heading"}},
     ...
   ]
 }}
 
-Make each heading unique and SEO-optimized."""
+CRITICAL: Make headings specific to "{focus_keyword}" - don't use generic terms only!"""
     
     messages = [{"role": "user", "content": prompt}]
-    response, error = call_grok(messages, max_tokens=2000, temperature=0.2)
+    response, error = call_grok(messages, max_tokens=2500, temperature=0.4)
     
     if error: return None
     
