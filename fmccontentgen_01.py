@@ -1929,12 +1929,13 @@ with tab4:
         st.rerun()
     
     # Display generated content
+    # Display generated content
     if st.session_state.generated_sections:
         st.markdown("---")
         st.markdown("## 📄 Article Preview")
         
-        h1 = st.session_state.content_outline['article_title']
-        st.markdown(f"# {h1}")
+        article_h1 = st.session_state.content_outline.get('article_title', st.session_state.focus_keyword)
+        st.markdown(f"# {article_h1}")
         
         # Display SEO Introduction
         if st.session_state.get('seo_intro'):
@@ -1986,7 +1987,7 @@ with tab4:
         
         # Export
         st.markdown("---")
-        html = export_to_html(h1, st.session_state.get('seo_intro', ''), 
+        html = export_to_html(article_h1, st.session_state.get('seo_intro', ''),
                             st.session_state.generated_sections, 
                             st.session_state.generated_faqs, st.session_state.latest_updates)
         
@@ -1996,7 +1997,7 @@ with tab4:
                              file_name=f"{st.session_state.focus_keyword.replace(' ', '_')}.html",
                              mime="text/html", use_container_width=True)
         with col2:
-            text = f"{h1}\n\n"
+            text = f"{article_h1}\n\n"
             if st.session_state.get('seo_intro'):
                 text += f"{st.session_state.seo_intro}\n\n"
             for sec in st.session_state.generated_sections:
