@@ -1241,6 +1241,243 @@ with tab3:
                             'needs_table': needs_table,
                             'needs_bullets': not needs_table,
                             'custom_table_instruction': custom_instruction,
+                            'content_focus': f"Write about {h2_title}",
+                            'is_manual': False  # Flag for researched vs manual
+                        })
+                    
+                    st.session_state.content_outline = {
+                        'article_title': h1,
+                        'headings': headings
+                    }
+                    
+                    st.success("✓ Outline generated with SEO-optimized H2 headings!")
+                    st.rerun()
+    
+    if st.session_state.content_outline:
+        # Display and allow editing of H1
+        st.markdown("### H1 - Main Title")
+        h1_edit = st.text_input("Edit H1 Title:", 
+                               value=st.session_state.content_outline['article_title'],
+                               key="h1_editor",
+                               help="Semantic title with key aspects")
+        if h1_edit != st.session_state.content_outline['article_title']:
+            st.session_state.content_outline['article_title'] = h1_edit
+        
+        # Add custom heading in outline
+        st.markdown("---")
+        with st.expander("➕ Add Custom Heading to Outline", expanded=False):
+            st.info("Add a new section that Grok will research and write during content generation")
+            
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                manual_h2 = st.text_input("H2 Heading:", 
+                                         placeholder="e.g., Common Myths and Misconceptions",
+                                         key="manual_h2_input")
+            with col2:
+                insert_pos = st.number_input("Insert at position:", 
+                                            min_value=1, 
+                                            max_value=len(st.session_state.content_outline['headings'])+1,
+                                            value=len(st.session_state.content_outline['headings'])+1,
+                                            key="insert_pos")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                manual_needs_table = st.checkbox("Needs Table", value=False, key="manual_table")
+            with col2:
+                manual_needs_bullets = st.checkbox("Needs Bullets", value=True, key="manual_bullets")
+            
+            research_instruction = st.text_area("What should Grok research for this section?",
+                                               placeholder="e.g., Find common misconceptions about this topic and factual corrections",
+                                               height=70,
+                                               key="manual_research")
+            
+            if st.button("Add to Outline", type="secondary", use_container_width=True):
+                if manual_h2.strip():
+                    new_heading = {
+                        'qid': f'manual_{len(st.session_state.content_outline["headings"])}',
+                        'h2_title': manual_h2.strip(),
+                        'original_query': research_instruction or f"Research and write about {manual_h2.strip()}",
+                        'needs_table': manual_needs_table,
+                        'needs_bullets': manual_needs_bullets,
+                        'custom_table_instruction': '',
+                        'content_focus': research_instruction or f"Write about {manual_h2.strip()}",
+                        'is_manual': True  # Flag to trigger Grok research
+                    }
+                    
+                    # Insert at specified position
+                    st.session_state.content_outline['headings'].insert(insert_pos - 1, new_heading)
+                    st.success(f"✓ Added '{manual_h2}' at position {insert_pos}")
+                    st.rerun()
+                else:
+                    st.warning("Please enter an H2 heading")
+        
+        # Content structure
+        st.markdown("---")
+        st.subheader("📋 Content Structure - H2 Headings")
+        
+        # Count manual vs researched
+        manual_count = sum(1 for h in st.session_state.content_outline['headings'] if h.get('is_manual', False))
+        researched_count = len(st.session_state.content_outline['headings']) - manual_count
+        
+        st.info(f"✅ {researched_count} researched sections | 🔷 {manual_count} manual sections (Grok will research these)")
+        
+        # Check for duplicates
+        h2_titles = [h['h2_title'] for h in st.session_state.content_outline['headings']]
+        duplicates = [h for h in h2_titles if h2_titles.count(h) > 1]
+        if duplicates:
+            st.warning(f"⚠️ Duplicate headings found: {', '.join(set(duplicates))} - Edit them below!")
+        
+        # Display outline with editing options
+        for idx, heading in enumerate(st.session_state.content_outline['headings']):
+            is_manual = heading.get('is_manual', False)
+            heading_label = f"🔷 Manual: {heading['h2_title']}" if is_manual else f"**H2 #{idx+1}: {heading['h2_title']}**"
+            
+            with st.expander(heading_label, expanded=False):
+                col1, col2 = st.columns([3, 1])
+                
+                with col1:
+                    # Edit H2 title
+                    new_title = st.text_input("H2 Title:", value=heading['h2_title'], 
+                                            key=f"h2_edit_{idx}",
+                                            help="Keep it 4-8 words, SEO-friendly")
+                    if new_title != heading['h2_title']:
+                        st.session_state.content_outline['headings'][idx]['h2_title'] = new_title
+                    
+                    # Show original query/instruction for reference
+                    if heading.get('original_query'):
+                        if is_manual:
+                            st.caption(f"🔷 Grok will research: {heading['original_query'][:80]}...")
+                        else:
+                            st.caption(f"📋 Research query: {heading['original_query'][:80]}...")
+                
+                with col2:
+                    # Move up/down/delete
+                    col_up, col_down, col_del = st.columns(3)
+                    with col_up:
+                        if idx > 0 and st.button("⬆️", key=f"up_{idx}", help="Move up"):
+                            headings = st.session_state.content_outline['headings']
+                            headings[idx], headings[idx-1] = headings[idx-1], headings[idx]
+                            st.rerun()
+                    with col_down:
+                        if idx < len(st.session_state.content_outline['headings'])-1 and \
+                           st.button("⬇️", key=f"down_{idx}", help="Move down"):
+                            headings = st.session_state.content_outline['headings']
+                            headings[idx], headings[idx+1] = headings[idx+1], headings[idx]
+                            st.rerun()
+                    with col_del:
+                        if st.button("🗑️", key=f"remove_{idx}", help="Remove"):
+                            st.session_state.content_outline['headings'].pop(idx)
+                            st.rerun()
+                
+                # Structure display
+                structure_tags = []
+                if heading.get('needs_table'):
+                    structure_tags.append("📊 Table")
+                if heading.get('needs_bullets'):
+                    structure_tags.append("📝 Bullets")
+                structure_tags.append("📄 Paragraph")
+                
+                st.info(f"Structure: {' + '.join(structure_tags)}")
+                
+                if heading.get('custom_table_instruction'):
+                    st.success(f"**Custom Table:** {heading['custom_table_instruction']}")
+                
+                # Toggle table/bullets
+                col_t, col_b = st.columns(2)
+                with col_t:
+                    if st.checkbox("Needs Table", value=heading.get('needs_table', True), 
+                                 key=f"table_{idx}"):
+                        st.session_state.content_outline['headings'][idx]['needs_table'] = True
+                        st.session_state.content_outline['headings'][idx]['needs_bullets'] = False
+                with col_b:
+                    if st.checkbox("Needs Bullets", value=heading.get('needs_bullets', False),
+                                 key=f"bullets_{idx}"):
+                        st.session_state.content_outline['headings'][idx]['needs_bullets'] = True
+                        st.session_state.content_outline['headings'][idx]['needs_table'] = False
+        
+        # Preview full outline
+        st.markdown("---")
+        st.markdown("### 📄 Final Article Outline Preview")
+        
+        preview_box = [f"# {st.session_state.content_outline['article_title']}", ""]
+        for idx, h in enumerate(st.session_state.content_outline['headings'], 1):
+            structure = "📊 Table" if h.get('needs_table') else "📝 Bullets"
+            manual_marker = " 🔷" if h.get('is_manual') else ""
+            preview_box.append(f"## {idx}. {h['h2_title']} [{structure}]{manual_marker}")
+        
+        st.code("\n".join(preview_box), language="markdown")
+        
+        if manual_count > 0:
+            st.info(f"🔷 {manual_count} manual sections will be researched by Grok during content generation")
+        
+        st.markdown("---")
+        st.success("✅ Outline ready! Go to Tab 4 to generate content.")
+        
+        if duplicates:
+            st.error("⚠️ Fix duplicate headings before generating content!")
+    st.header("Step 3: Outline Structure")
+    
+    if not st.session_state.research_results:
+        st.warning("⚠️ Complete research in Tab 2 first")
+        st.stop()
+    
+    st.success(f"✅ {len(st.session_state.research_results)} queries researched and ready")
+    
+    # Generate semantic H1
+    st.markdown("---")
+    st.subheader("📝 Article Title (H1)")
+    
+    if not st.session_state.content_outline:
+        if st.button("Generate Article Outline", type="primary", use_container_width=True):
+            with st.spinner("Generating semantic H1 and converting queries to H2 headings..."):
+                # Step 1: Generate H1
+                h1 = generate_semantic_h1(st.session_state.focus_keyword, st.session_state.research_results)
+                
+                # Step 2: Convert queries to short H2 headings
+                h2_conversions = convert_queries_to_h2_headings(
+                    st.session_state.research_results, 
+                    st.session_state.focus_keyword
+                )
+                
+                if not h2_conversions:
+                    st.error("Failed to convert queries to H2 headings. Please try again.")
+                else:
+                    # Build outline with converted H2s
+                    headings = []
+                    
+                    # Map original queries to converted H2s
+                    query_to_h2 = {}
+                    for conversion in h2_conversions:
+                        original = conversion.get('original_query', '')
+                        h2 = conversion.get('h2', '')
+                        if original and h2:
+                            query_to_h2[original] = h2
+                    
+                    # Create outline headings
+                    for qid, data in st.session_state.research_results.items():
+                        original_query = data['query']
+                        
+                        # Find matching H2 or use shortened version
+                        h2_title = query_to_h2.get(original_query, original_query[:60])
+                        
+                        # Determine structure
+                        needs_table = True
+                        custom_instruction = ""
+                        
+                        if qid.startswith('custom_'):
+                            custom_h = next((h for h in st.session_state.custom_headings 
+                                           if h['id'] == qid), None)
+                            if custom_h:
+                                needs_table = custom_h.get('content_type') == 'Table Required'
+                                custom_instruction = custom_h.get('table_instruction', '')
+                        
+                        headings.append({
+                            'qid': qid,
+                            'h2_title': h2_title,
+                            'original_query': original_query,
+                            'needs_table': needs_table,
+                            'needs_bullets': not needs_table,
+                            'custom_table_instruction': custom_instruction,
                             'content_focus': f"Write about {h2_title}"
                         })
                     
@@ -1359,13 +1596,21 @@ with tab4:
         st.warning("⚠️ Create outline structure in Tab 3 first")
         st.stop()
     
-    st.success(f"✅ Outline ready with {len(st.session_state.content_outline['headings'])} sections")
+    # Count manual sections
+    manual_sections = [h for h in st.session_state.content_outline['headings'] if h.get('is_manual', False)]
+    researched_sections = [h for h in st.session_state.content_outline['headings'] if not h.get('is_manual', False)]
+    
+    st.success(f"✅ Outline ready: {len(researched_sections)} researched + {len(manual_sections)} manual sections")
+    
+    if manual_sections:
+        st.info(f"🔷 {len(manual_sections)} manual sections will be researched by Grok on-the-fly")
     
     # Show outline summary
     with st.expander("📋 Article Outline", expanded=False):
         st.markdown(f"**H1:** {st.session_state.content_outline['article_title']}")
         for idx, h in enumerate(st.session_state.content_outline['headings'], 1):
-            st.markdown(f"{idx}. {h['h2_title']}")
+            manual_marker = " 🔷 (Grok will research)" if h.get('is_manual') else ""
+            st.markdown(f"{idx}. {h['h2_title']}{manual_marker}")
     
     if st.button("🚀 Generate Publication-Ready Article", type="primary", use_container_width=True):
         progress = st.progress(0)
@@ -1377,9 +1622,9 @@ with tab4:
         latest_updates = get_latest_news_updates(st.session_state.focus_keyword, st.session_state.target_country)
         st.session_state.latest_updates = latest_updates
         
-        # Step 2: Prepare research context
-        research_context = "\n\n".join([f"Q: {d['query']}\nA: {d['result']}" 
-                                      for d in st.session_state.research_results.values()])
+        # Step 2: Prepare research context from existing research
+        existing_research_context = "\n\n".join([f"Q: {d['query']}\nA: {d['result']}" 
+                                                for d in st.session_state.research_results.values()])
         
         # Step 3: Generate sections based on outline
         st.session_state.generated_sections = []
@@ -1396,6 +1641,38 @@ with tab4:
                 timer = f"⏱️ ~{mins}m {secs}s remaining"
             else:
                 timer = "⏱️ Starting..."
+            
+            # Check if manual heading (needs Grok research first)
+            if heading_data.get('is_manual', False):
+                status.text(f"{timer} | 🔷 Researching (Grok): {heading_data['h2_title'][:50]}...")
+                
+                # Grok researches this topic
+                research_prompt = f"""Research and provide comprehensive information about: "{heading_data['h2_title']}"
+
+Context: This is for an article about "{st.session_state.focus_keyword}"
+
+Research instruction: {heading_data.get('original_query', '')}
+
+Provide factual, detailed information that will be used to write content. Include:
+- Key facts and data
+- Important details
+- Examples if relevant
+- Any statistics or numbers
+
+Return comprehensive information (aim for 200-300 words of research data)."""
+                
+                messages = [{"role": "user", "content": research_prompt}]
+                grok_research, error = call_grok(messages, max_tokens=1500, temperature=0.3)
+                
+                if grok_research:
+                    # Add to research context
+                    research_context = existing_research_context + f"\n\nQ: {heading_data['h2_title']}\nA: {grok_research}"
+                else:
+                    research_context = existing_research_context
+                    status.warning(f"⚠️ Could not research {heading_data['h2_title']}")
+            else:
+                # Use existing research
+                research_context = existing_research_context
             
             status.text(f"{timer} | Writing: {heading_data['h2_title'][:50]}...")
             
@@ -1427,7 +1704,7 @@ with tab4:
         status.text("⏱️ Generating FAQs...")
         faqs, _ = generate_faqs(st.session_state.focus_keyword, 
                                st.session_state.paa_keywords, 
-                               research_context)
+                               existing_research_context)
         st.session_state.generated_faqs = faqs.get('faqs', []) if faqs else []
         
         # Step 5: Final coherence check
