@@ -1632,14 +1632,10 @@ with tab3:
                     section['intro_paragraphs'] = new_intro
                 
                 with col2:
-                    current_content_type = section.get('main_content_type', 'paragraph')
-                    if current_content_type not in ["table", "bullets", "paragraph"]:
-                    current_content_type = 'paragraph'  # Default fallback
-
-                new_main = st.selectbox("Main content type:", 
-                                       ["table", "bullets", "paragraph"],
-                                       index=["table", "bullets", "paragraph"].index(current_content_type),
-                                    key=f"main_{idx}")
+                    current_content_type = section.get('main_content_type', 'paragraph') if section.get('main_content_type', 'paragraph') in ["table", "bullets", "paragraph"] else 'paragraph'
+                    new_main = st.selectbox("Main content type:", ["table", "bullets", "paragraph"], index=["table", "bullets", "paragraph"].index(current_content_type), key=f"main_{idx}")
+                    section['main_content_type'] = new_main
+                    
                 
                 # H3 subsections
                 if section.get('h3_subsections'):
