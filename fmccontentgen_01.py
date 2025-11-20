@@ -1797,7 +1797,7 @@ with tab4:
         # Generate SEO Introduction Paragraph
         status.text("⏱️ Generating SEO introduction paragraph...")
         seo_intro, intro_error = generate_seo_introduction(
-            h1,
+            article_h1,
             st.session_state.focus_keyword,
             existing_research_context,
             latest_updates
