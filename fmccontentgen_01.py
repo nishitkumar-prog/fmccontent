@@ -571,10 +571,10 @@ def is_table_duplicate(table, used_tables):
     
     return False
 
-def generate_section_content(heading_structure, research_context, is_first_section=False, latest_updates=None):
+def generate_section_content(heading_structure, research_context):
     """Generate expert-level content following strict hierarchical structure"""
     if not grok_key: return None, "Grok required"
-    
+
     system_instruction = f"""You are an EXPERT TECHNICAL WRITER creating publication-ready content.
 Context Date: {formatted_date}
 
@@ -586,6 +586,7 @@ ABSOLUTE RULES - ZERO TOLERANCE:
    - NEVER use: "not available", "not specified", "data not found"
    - NEVER use: "typically", "usually", "generally", "varies"
    - NO external links or URLs anywhere in content
+   - NO markdown tables in content (tables will be generated separately)
 
 2. EXPERT WRITING STYLE:
    - Direct, authoritative tone
@@ -602,44 +603,28 @@ ABSOLUTE RULES - ZERO TOLERANCE:
    ❌ "Let's look at" / "Let's explore"
    ❌ Any sentence starting with "It is important"
    ❌ Any URLs or web links
+   ❌ Any markdown table syntax (|---|---|)
+
+4. CONTENT FORMAT:
+   - Write only paragraph text and bullet points
+   - DO NOT create markdown tables
+   - DO NOT duplicate information that appears in official tables
 """
 
-    if is_first_section and latest_updates:
-        updates_text = "\n".join([f"• {update}" for update in latest_updates])
-        prompt = f"""{system_instruction}
+    # Regular section (don't include latest updates in first section content)
+    h3_info = ""
+    if heading_structure.get('h3_subsections'):
+        h3_list = "\n".join([f"- H3: {h3['h3']} [{h3['content_type']}]"
+                            for h3 in heading_structure['h3_subsections']])
+        h3_info = f"\n\nH3 SUBSECTIONS TO INCLUDE:\n{h3_list}\n(Write content for each H3 as well)"
 
-TASK: Write opening section with latest updates
+    main_content_instruction = {
+        'table': "After intro, mention that detailed data is shown in the table below (don't list the data in paragraph or create markdown tables)",
+        'bullets': "After intro, present key points as bullet points",
+        'paragraph': "Write 2-3 detailed paragraphs explaining the topic thoroughly"
+    }.get(heading_structure.get('main_content_type', 'paragraph'), '')
 
-FORMAT:
-**Latest Updates** (bold heading)
-{updates_text}
-
-Then {heading_structure.get('intro_paragraphs', 1)} paragraph(s) covering:
-- Definition/overview
-- Governing body/authority (if applicable)
-- Primary purpose
-- Target audience
-
-RESEARCH DATA:
-{research_context[:2500]}
-
-CRITICAL: Only write about facts in research. Skip missing information silently. NO URLs."""
-
-    else:
-        # Regular section
-        h3_info = ""
-        if heading_structure.get('h3_subsections'):
-            h3_list = "\n".join([f"- H3: {h3['h3']} [{h3['content_type']}]" 
-                                for h3 in heading_structure['h3_subsections']])
-            h3_info = f"\n\nH3 SUBSECTIONS TO INCLUDE:\n{h3_list}\n(Write content for each H3 as well)"
-        
-        main_content_instruction = {
-            'table': "After intro, mention that detailed data is shown in the table below (don't list the data in paragraph)",
-            'bullets': "After intro, present key points as bullet points",
-            'paragraph': "Write 2-3 detailed paragraphs explaining the topic thoroughly"
-        }.get(heading_structure.get('main_content_type', 'paragraph'), '')
-        
-        prompt = f"""{system_instruction}
+    prompt = f"""{system_instruction}
 
 TASK: Write content for: "{heading_structure['h2']}"
 
@@ -653,21 +638,27 @@ Focus: {heading_structure.get('main_content_description', '')}
 RESEARCH DATA:
 {research_context[:3500]}
 
-REMEMBER: 
+REMEMBER:
 - Follow the structure exactly
 - Only facts from research
 - Skip missing data silently
 - Vary sentence structure
 - Expert authoritative tone
-- NO URLs or external links"""
+- NO URLs or external links
+- NO markdown tables (use proper table objects instead)
+- DO NOT write about "Latest Updates" - that's handled separately"""
 
     messages = [{"role": "user", "content": prompt}]
     content, error = call_grok(messages, max_tokens=1500, temperature=0.3)
-    
+
     if content:
         # Remove any URLs that might have slipped through
         content = re.sub(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', '', content)
-    
+        # Remove any markdown tables
+        content = re.sub(r'\|[^\n]+\|(\n\|[-:\s|]+\|)?(\n\|[^\n]+\|)*', '', content)
+        # Remove "Latest Updates" sections that might slip through
+        content = re.sub(r'\*\*Latest Updates?\*\*.*?(?=\n\n|###|\Z)', '', content, flags=re.DOTALL | re.IGNORECASE)
+
     return content, error
 
 def generate_intelligent_table(heading_structure, research_context):
@@ -1024,7 +1015,7 @@ BE CRITICAL. Only rate 9-10 if truly exceptional. Identify real issues if they e
         return True, f"Quality check completed (parsing error: {str(e)})"
 
 def export_to_html(article_title, seo_intro, sections, faqs, latest_updates):
-    """Export clean HTML without external links"""
+    """Export clean HTML without external links and duplicates"""
     html = ['<!DOCTYPE html>', '<html>', '<head>',
             '<meta charset="UTF-8">',
             '<style>',
@@ -1044,14 +1035,17 @@ def export_to_html(article_title, seo_intro, sections, faqs, latest_updates):
             '.table-note { font-size: 0.9em; color: #666; font-style: italic; margin-top: 5px; }',
             '</style>',
             '</head>', '<body>']
-    
-    html.append(f'<h1>{article_title}</h1>')
-    
+
+    # Clean H1 title - remove markdown symbols
+    clean_title = article_title.strip().lstrip('#').strip()
+    html.append(f'<h1>{clean_title}</h1>')
+
     # Add SEO Introduction Paragraph
     if seo_intro:
         seo_intro_clean = re.sub(r'http[s]?://\S+', '', seo_intro)
         html.append(f'<p><strong>{seo_intro_clean}</strong></p>')
-    
+
+    # Add latest updates box ONCE (not in sections)
     if latest_updates:
         html.append('<div class="update-box">')
         html.append('<strong>Latest Updates</strong>')
@@ -1060,31 +1054,45 @@ def export_to_html(article_title, seo_intro, sections, faqs, latest_updates):
             update_clean = re.sub(r'http[s]?://\S+', '', update)
             html.append(f'<li>{update_clean}</li>')
         html.append('</ul></div>')
-    
+
+    # Track sections to avoid duplicate "Latest Updates" sections
     for section in sections:
-        html.append(f'<h2>{section["heading"]["h2"]}</h2>')
-        
+        h2_title = section["heading"]["h2"]
+
+        # Skip duplicate "Latest Updates" or "CEED Exam Updates" sections
+        if any(phrase in h2_title for phrase in ['Latest Update', 'Exam Update', 'Recent Update']):
+            continue
+
+        html.append(f'<h2>{h2_title}</h2>')
+
         if section.get('content'):
             content = section['content']
-            # Clean any LLM artifacts and URLs
+            # Clean any LLM artifacts, URLs, and markdown headings
             content = re.sub(r'^#+\s+.*$', '', content, flags=re.MULTILINE)
-            content = re.sub(r'\*\*Latest Updates\*\*', '', content, flags=re.IGNORECASE)
+            content = re.sub(r'\*\*Latest Updates?\*\*.*?(?=\n\n|\Z)', '', content, flags=re.DOTALL | re.IGNORECASE)
             content = re.sub(r'http[s]?://\S+', '', content)
-            
+
+            # Remove markdown table syntax (convert to actual tables via the table object)
+            content = re.sub(r'\|[^\n]+\|(\n\|[-:\s|]+\|)?(\n\|[^\n]+\|)*', '', content)
+
             blocks = content.split('\n\n')
             for block in blocks:
                 block = block.strip()
                 if not block: continue
-                
+
+                # Skip if it's a markdown table remnant
+                if '|' in block and block.count('|') > 2:
+                    continue
+
                 # Check for H3
                 if block.startswith('###'):
                     h3_text = block.replace('###', '').strip()
                     html.append(f'<h3>{h3_text}</h3>')
                     continue
-                
+
                 # Bold text
                 block = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', block)
-                
+
                 # Check for bullet points
                 if block.startswith(('- ', '• ')):
                     html.append('<ul>')
@@ -1095,19 +1103,19 @@ def export_to_html(article_title, seo_intro, sections, faqs, latest_updates):
                     html.append('</ul>')
                 else:
                     html.append(f'<p>{block}</p>')
-        
+
+        # Only add table if it exists and has valid data
         if section.get('table'):
             table = section['table']
-            html.append(f'<h3>{table.get("table_title", "")}</h3>')
-            html.append('<table>')
-            
-            if table.get('headers'):
+            if table.get('rows') and table.get('headers'):
+                html.append(f'<h3>{table.get("table_title", "")}</h3>')
+                html.append('<table>')
+
                 html.append('<thead><tr>')
                 for h in table['headers']:
                     html.append(f'<th>{h}</th>')
                 html.append('</tr></thead>')
-            
-            if table.get('rows'):
+
                 html.append('<tbody>')
                 for row in table['rows']:
                     html.append('<tr>')
@@ -1116,12 +1124,12 @@ def export_to_html(article_title, seo_intro, sections, faqs, latest_updates):
                         html.append(f'<td>{cell_clean}</td>')
                     html.append('</tr>')
                 html.append('</tbody>')
-            
-            html.append('</table>')
-            if table.get('footer_note'):
-                footer_clean = re.sub(r'http[s]?://\S+', '', table['footer_note'])
-                html.append(f'<p class="table-note">{footer_clean}</p>')
-    
+
+                html.append('</table>')
+                if table.get('footer_note'):
+                    footer_clean = re.sub(r'http[s]?://\S+', '', table['footer_note'])
+                    html.append(f'<p class="table-note">{footer_clean}</p>')
+
     if faqs:
         html.append('<h2>Frequently Asked Questions</h2>')
         for faq in faqs:
@@ -1129,7 +1137,7 @@ def export_to_html(article_title, seo_intro, sections, faqs, latest_updates):
             answer_clean = re.sub(r'http[s]?://\S+', '', faq["answer"])
             html.append(f'<h3>{question_clean}</h3>')
             html.append(f'<p>{answer_clean}</p>')
-    
+
     html.append('</body></html>')
     return '\n'.join(html)
 
@@ -1866,13 +1874,10 @@ with tab4:
             
             # Generate content
             status.text(f"{timer} | ✍️ Writing: {section['h2'][:50]}...")
-            
-            is_first = (idx == 0)
+
             content, _ = generate_section_content(
-                section, 
-                research_context, 
-                is_first_section=is_first,
-                latest_updates=latest_updates if is_first else None
+                section,
+                research_context
             )
             
             # Generate table if needed
