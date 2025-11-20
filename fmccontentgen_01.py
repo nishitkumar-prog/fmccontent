@@ -1906,7 +1906,7 @@ with tab4:
         
         # Final SEO & Quality Check by Expert
         status.text("⏱️ Running comprehensive SEO quality review...")
-        h1 = st.session_state.content_outline['article_title']
+        article_h1 = st.session_state.content_outline.get('article_title', st.session_state.focus_keyword)
         passed, feedback = final_seo_quality_check(
             h1, 
             st.session_state.seo_intro,
