@@ -1025,25 +1025,41 @@ BE CRITICAL. Only rate 9-10 if truly exceptional. Identify real issues if they e
 
 def export_to_html(article_title, seo_intro, sections, faqs, latest_updates):
     """Export clean HTML without external links"""
-    html = [f'<h1>{article_title}</h1>', '']
+    html = ['<!DOCTYPE html>', '<html>', '<head>',
+            '<meta charset="UTF-8">',
+            '<style>',
+            'body { font-family: Arial, sans-serif; line-height: 1.6; max-width: 900px; margin: 0 auto; padding: 20px; }',
+            'h1 { font-size: 2em; color: #2c3e50; margin-bottom: 20px; }',
+            'h2 { font-size: 1.5em; color: #34495e; margin-top: 30px; margin-bottom: 15px; border-bottom: 2px solid #3498db; padding-bottom: 5px; }',
+            'h3 { font-size: 1.2em; color: #555; margin-top: 20px; margin-bottom: 10px; }',
+            'p { margin: 15px 0; text-align: justify; }',
+            'table { width: 100%; border-collapse: collapse; margin: 20px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }',
+            'th { background-color: #2c3e50; color: white; padding: 12px; text-align: left; font-weight: bold; }',
+            'td { padding: 10px; border: 1px solid #ddd; }',
+            'tr:nth-child(even) { background-color: #f8f9fa; }',
+            'tr:hover { background-color: #e8f4f8; }',
+            'ul { margin: 15px 0; padding-left: 25px; }',
+            'li { margin: 8px 0; }',
+            '.update-box { background: #fff3cd; padding: 15px; margin: 20px 0; border-left: 4px solid #ffc107; }',
+            '.table-note { font-size: 0.9em; color: #666; font-style: italic; margin-top: 5px; }',
+            '</style>',
+            '</head>', '<body>']
+    
+    html.append(f'<h1>{article_title}</h1>')
     
     # Add SEO Introduction Paragraph
     if seo_intro:
-        # Clean SEO intro
-        seo_intro_clean = re.sub(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', '', seo_intro)
+        seo_intro_clean = re.sub(r'http[s]?://\S+', '', seo_intro)
         html.append(f'<p><strong>{seo_intro_clean}</strong></p>')
-        html.append('')
     
     if latest_updates:
-        html.append('<div style="background: #fff3cd; padding: 15px; margin: 20px 0; border-left: 4px solid #ffc107;">')
+        html.append('<div class="update-box">')
         html.append('<strong>Latest Updates</strong>')
-        html.append('<ul style="margin: 10px 0 0 0;">')
+        html.append('<ul>')
         for update in latest_updates:
-            # Remove any URLs
-            update_clean = re.sub(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', '', update)
+            update_clean = re.sub(r'http[s]?://\S+', '', update)
             html.append(f'<li>{update_clean}</li>')
         html.append('</ul></div>')
-        html.append('')
     
     for section in sections:
         html.append(f'<h2>{section["heading"]["h2"]}</h2>')
@@ -1053,7 +1069,7 @@ def export_to_html(article_title, seo_intro, sections, faqs, latest_updates):
             # Clean any LLM artifacts and URLs
             content = re.sub(r'^#+\s+.*$', '', content, flags=re.MULTILINE)
             content = re.sub(r'\*\*Latest Updates\*\*', '', content, flags=re.IGNORECASE)
-            content = re.sub(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', '', content)
+            content = re.sub(r'http[s]?://\S+', '', content)
             
             blocks = content.split('\n\n')
             for block in blocks:
@@ -1066,57 +1082,56 @@ def export_to_html(article_title, seo_intro, sections, faqs, latest_updates):
                     html.append(f'<h3>{h3_text}</h3>')
                     continue
                 
+                # Bold text
                 block = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', block)
                 
+                # Check for bullet points
                 if block.startswith(('- ', '• ')):
                     html.append('<ul>')
                     for line in block.split('\n'):
                         line = line.strip()
                         if line.startswith(('- ', '• ')):
-                            html.append(f'  <li>{line[2:]}</li>')
+                            html.append(f'<li>{line[2:]}</li>')
                     html.append('</ul>')
                 else:
                     html.append(f'<p>{block}</p>')
         
         if section.get('table'):
             table = section['table']
-            html.append(f'<h3 style="font-size: 1.1em; margin-top: 20px;">{table.get("table_title", "")}</h3>')
-            html.append('<table border="1" style="border-collapse: collapse; width: 100%; margin: 20px 0;">')
+            html.append(f'<h3>{table.get("table_title", "")}</h3>')
+            html.append('<table>')
             
             if table.get('headers'):
-                html.append('  <thead><tr>')
+                html.append('<thead><tr>')
                 for h in table['headers']:
-                    html.append(f'    <th style="padding: 12px; background: #2c3e50; color: white;">{h}</th>')
-                html.append('  </tr></thead>')
+                    html.append(f'<th>{h}</th>')
+                html.append('</tr></thead>')
             
             if table.get('rows'):
-                html.append('  <tbody>')
+                html.append('<tbody>')
                 for row in table['rows']:
-                    html.append('    <tr>')
+                    html.append('<tr>')
                     for cell in row:
-                        # Remove URLs from cells
-                        cell_clean = re.sub(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', '', str(cell))
-                        html.append(f'      <td style="padding: 10px; border: 1px solid #ddd;">{cell_clean}</td>')
-                    html.append('    </tr>')
-                html.append('  </tbody>')
+                        cell_clean = re.sub(r'http[s]?://\S+', '', str(cell))
+                        html.append(f'<td>{cell_clean}</td>')
+                    html.append('</tr>')
+                html.append('</tbody>')
             
             html.append('</table>')
             if table.get('footer_note'):
-                footer_clean = re.sub(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', '', table['footer_note'])
-                html.append(f'<p style="font-size: 0.9em; color: #666; font-style: italic;">{footer_clean}</p>')
-        
-        html.append('')
+                footer_clean = re.sub(r'http[s]?://\S+', '', table['footer_note'])
+                html.append(f'<p class="table-note">{footer_clean}</p>')
     
     if faqs:
         html.append('<h2>Frequently Asked Questions</h2>')
         for faq in faqs:
-            question_clean = re.sub(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', '', faq["question"])
-            answer_clean = re.sub(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', '', faq["answer"])
-            html.append(f'<h3 style="font-size: 1.05em; margin-top: 15px;">{question_clean}</h3>')
+            question_clean = re.sub(r'http[s]?://\S+', '', faq["question"])
+            answer_clean = re.sub(r'http[s]?://\S+', '', faq["answer"])
+            html.append(f'<h3>{question_clean}</h3>')
             html.append(f'<p>{answer_clean}</p>')
     
+    html.append('</body></html>')
     return '\n'.join(html)
-
 # --- MAIN UI ---
 tab1, tab2, tab3, tab4 = st.tabs(["1. Setup & Keywords", "2. Research Queries", "3. Outline Structure", "4. Generate Content"])
 
@@ -1617,11 +1632,14 @@ with tab3:
                     section['intro_paragraphs'] = new_intro
                 
                 with col2:
-                    new_main = st.selectbox("Main content type:", 
-                                           ["table", "bullets", "paragraph"],
-                                           index=["table", "bullets", "paragraph"].index(section.get('main_content_type', 'paragraph')),
-                                           key=f"main_{idx}")
-                    section['main_content_type'] = new_main
+                    current_content_type = section.get('main_content_type', 'paragraph')
+                    if current_content_type not in ["table", "bullets", "paragraph"]:
+                    current_content_type = 'paragraph'  # Default fallback
+
+                new_main = st.selectbox("Main content type:", 
+                                       ["table", "bullets", "paragraph"],
+                                       index=["table", "bullets", "paragraph"].index(current_content_type),
+                                    key=f"main_{idx}")
                 
                 # H3 subsections
                 if section.get('h3_subsections'):
