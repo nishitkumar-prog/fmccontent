@@ -29,6 +29,7 @@ if 'custom_headings' not in st.session_state: st.session_state.custom_headings =
 if 'selected_custom_headings' not in st.session_state: st.session_state.selected_custom_headings = set()
 if 'h2_headings' not in st.session_state: st.session_state.h2_headings = []
 if 'used_table_content' not in st.session_state: st.session_state.used_table_content = set()
+if 'seo_intro' not in st.session_state: st.session_state.seo_intro = ""
 
 # --- API CONFIGURATION SIDEBAR ---
 st.sidebar.header("⚙️ Configuration")
@@ -823,57 +824,215 @@ Return ONLY valid JSON:
     except:
         return None, "Parse error"
 
-def final_coherence_check(h1, sections, faqs):
-    """Final quality pass by Grok"""
-    if not grok_key: return True, "Skipped"
+def generate_seo_introduction(h1_title, focus_keyword, research_context, latest_updates=None):
+    """Generate comprehensive SEO introduction paragraph after H1"""
+    if not grok_key: return None, "Grok required"
     
-    article_text = f"H1: {h1}\n\n"
-    for sec in sections:
-        article_text += f"H2: {sec['heading']['h2']}\n"
-        article_text += f"{sec.get('content', '')[:300]}\n\n"
-    
-    prompt = f"""FINAL QUALITY CHECK
+    prompt = f"""Write a comprehensive SEO INTRODUCTION PARAGRAPH that appears immediately after the H1 title.
 
-Article: {article_text[:4000]}
+H1: {h1_title}
+Focus Keyword: {focus_keyword}
 
-CHECK:
-1. Any placeholder text? ("not available", "not specified", "data not found")
-2. Empty table cells or N/A values?
-3. Repetitive sentence structures?
-4. Missing transitions between sections?
-5. Inconsistent formatting?
-6. Generic/vague statements?
-7. Any URLs or external links?
-8. Duplicate tables?
+RESEARCH DATA:
+{research_context[:2500]}
 
-Return JSON:
-{{
-  "status": "PASS" or "ISSUES_FOUND",
-  "issues": ["list of issues found"],
-  "quality_score": 1-10
-}}
+PURPOSE OF THIS PARAGRAPH:
+This introduction serves as the article's foundation - it must:
+1. Define what {focus_keyword} is (clear, concise definition)
+2. Explain its purpose/importance
+3. Preview what the article covers
+4. Include target keywords naturally
+5. Hook the reader to continue reading
 
-If quality_score < 8, list specific issues."""
+STRUCTURE (150-200 words):
+- Opening sentence: Clear definition of {focus_keyword}
+- 2-3 sentences: Context, importance, who it's for
+- 1-2 sentences: What readers will learn in this article
+- Closing sentence: Brief mention of latest updates (if any)
+
+TONE:
+- Authoritative and informative
+- Natural keyword integration
+- Engaging but professional
+- Present tense
+
+SEO OPTIMIZATION:
+- Include "{focus_keyword}" in first 100 characters
+- Use semantic variations (synonyms, related terms)
+- Answer implicit "what is" query
+- Include year ({current_year}) for freshness signal
+
+EXAMPLE STRUCTURE:
+"{focus_keyword} is [clear definition]. [Purpose/importance sentence]. [Who it's for sentence]. This comprehensive guide covers [topic 1], [topic 2], [topic 3], and [topic 4], providing aspiring candidates with everything needed to [goal]. [Latest update reference if available]."
+
+CRITICAL RULES:
+- Write ONLY the introduction paragraph
+- 150-200 words exactly
+- NO heading (just the paragraph text)
+- NO bullet points or lists
+- Natural, flowing prose
+- Data-backed where possible
+- NO external links or URLs
+
+Return ONLY the paragraph text, nothing else."""
     
     messages = [{"role": "user", "content": prompt}]
-    response, error = call_grok(messages, max_tokens=1000, temperature=0.1)
+    intro, error = call_grok(messages, max_tokens=500, temperature=0.4)
     
-    if error: return True, "Check skipped"
+    if intro:
+        # Remove any URLs
+        intro = re.sub(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', '', intro)
+        # Remove any accidental headings
+        intro = re.sub(r'^#+\s+.*$', '', intro, flags=re.MULTILINE)
+        return intro.strip(), None
+    
+    return intro, error
+
+def final_seo_quality_check(h1, seo_intro, sections, faqs, focus_keyword):
+    """Comprehensive SEO and quality check by Grok acting as SEO expert"""
+    if not grok_key: return True, "Skipped"
+    
+    # Compile full article structure
+    article_preview = f"H1: {h1}\n\n"
+    article_preview += f"INTRO: {seo_intro[:200]}...\n\n"
+    
+    for sec in sections[:8]:  # First 8 sections for review
+        article_preview += f"H2: {sec['heading']['h2']}\n"
+        article_preview += f"Content preview: {sec.get('content', '')[:150]}...\n"
+        if sec.get('table'):
+            article_preview += f"[Table: {sec['table'].get('table_title', 'N/A')}]\n"
+        article_preview += "\n"
+    
+    faq_preview = "\n".join([f"Q: {faq['question']}" for faq in faqs[:5]]) if faqs else "No FAQs"
+    
+    prompt = f"""You are an EXPERT SEO CONSULTANT reviewing this article for publication.
+
+ARTICLE STRUCTURE:
+{article_preview}
+
+FAQS:
+{faq_preview}
+
+TARGET KEYWORD: {focus_keyword}
+CURRENT YEAR: {current_year}
+
+COMPREHENSIVE REVIEW CHECKLIST:
+
+1. SEO OPTIMIZATION (Critical):
+   ✓ H1 includes target keyword naturally?
+   ✓ Introduction paragraph includes keyword in first 100 chars?
+   ✓ H2 headings are keyword-focused and searchable?
+   ✓ Semantic keywords and variations used throughout?
+   ✓ Meta-relevant content (year, location, specific data)?
+   ✓ No keyword stuffing?
+
+2. CONTENT STRUCTURE (Critical):
+   ✓ Clear hierarchy: H1 → Intro → H2s → Content?
+   ✓ Logical flow between sections?
+   ✓ Each section serves a purpose?
+   ✓ No orphaned or out-of-place content?
+   ✓ Proper transitions between topics?
+
+3. CONTENT QUALITY (Critical):
+   ✓ Introduction summarizes entire article?
+   ✓ No placeholder text ("not available", "data not found")?
+   ✓ No repetitive content across sections?
+   ✓ Tables add value (not duplicates)?
+   ✓ Factual, specific data (no vague statements)?
+   ✓ NO external URLs or links?
+
+4. READABILITY (Important):
+   ✓ Varied sentence structures?
+   ✓ Natural language (not robotic)?
+   ✓ Clear, concise explanations?
+   ✓ Appropriate paragraph lengths?
+   ✓ Professional tone throughout?
+
+5. TECHNICAL SEO (Important):
+   ✓ Proper heading hierarchy (no skipped levels)?
+   ✓ Descriptive table titles with year?
+   ✓ FAQ answers are comprehensive (2-3 lines)?
+   ✓ Content length appropriate (not too thin)?
+
+6. USER INTENT (Critical):
+   ✓ Article answers the main query about {focus_keyword}?
+   ✓ Provides actionable, useful information?
+   ✓ Covers topic comprehensively?
+   ✓ Satisfies search intent?
+
+SCORING CRITERIA:
+- 10/10: Perfect, publication-ready
+- 8-9/10: Very good, minor tweaks needed
+- 6-7/10: Good, but has notable issues
+- <6/10: Needs significant improvement
+
+Return ONLY valid JSON:
+{{
+  "overall_score": 1-10,
+  "status": "EXCELLENT" or "GOOD" or "NEEDS_IMPROVEMENT",
+  "seo_score": 1-10,
+  "structure_score": 1-10,
+  "content_quality_score": 1-10,
+  "readability_score": 1-10,
+  "strengths": ["list of 2-3 major strengths"],
+  "issues": ["list of specific issues found - empty if none"],
+  "seo_recommendations": ["list of 2-3 SEO improvements if needed"],
+  "verdict": "One sentence professional verdict on publication readiness"
+}}
+
+BE CRITICAL. Only rate 9-10 if truly exceptional. Identify real issues if they exist."""
+    
+    messages = [{"role": "user", "content": prompt}]
+    response, error = call_grok(messages, max_tokens=1500, temperature=0.2)
+    
+    if error: return True, "Check skipped due to error"
     
     try:
         if "```json" in response:
             response = response.split("```json")[1].split("```")[0]
         result = json.loads(response.strip())
-        if result.get('quality_score', 10) >= 8:
-            return True, f"Quality Score: {result['quality_score']}/10"
-        else:
-            return False, f"Issues: {', '.join(result.get('issues', []))}"
-    except:
-        return True, "Check completed"
+        
+        overall_score = result.get('overall_score', 10)
+        status = result.get('status', 'GOOD')
+        
+        # Format detailed feedback
+        feedback = f"""
+**Overall Score: {overall_score}/10** - {status}
 
-def export_to_html(article_title, sections, faqs, latest_updates):
+📊 **Detailed Scores:**
+- SEO: {result.get('seo_score', 'N/A')}/10
+- Structure: {result.get('structure_score', 'N/A')}/10  
+- Content Quality: {result.get('content_quality_score', 'N/A')}/10
+- Readability: {result.get('readability_score', 'N/A')}/10
+
+✅ **Strengths:**
+{chr(10).join([f'• {s}' for s in result.get('strengths', ['Content meets standards'])])}
+
+{f"⚠️ **Issues Found:**{chr(10)}" + chr(10).join([f'• {i}' for i in result.get('issues', [])]) if result.get('issues') else '✅ No major issues found'}
+
+{f"🎯 **SEO Recommendations:**{chr(10)}" + chr(10).join([f'• {r}' for r in result.get('seo_recommendations', [])]) if result.get('seo_recommendations') else ''}
+
+**Verdict:** {result.get('verdict', 'Article is ready for publication.')}
+"""
+        
+        if overall_score >= 8:
+            return True, feedback
+        else:
+            return False, feedback
+            
+    except Exception as e:
+        return True, f"Quality check completed (parsing error: {str(e)})"
+
+def export_to_html(article_title, seo_intro, sections, faqs, latest_updates):
     """Export clean HTML without external links"""
     html = [f'<h1>{article_title}</h1>', '']
+    
+    # Add SEO Introduction Paragraph
+    if seo_intro:
+        # Clean SEO intro
+        seo_intro_clean = re.sub(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', '', seo_intro)
+        html.append(f'<p><strong>{seo_intro_clean}</strong></p>')
+        html.append('')
     
     if latest_updates:
         html.append('<div style="background: #fff3cd; padding: 15px; margin: 20px 0; border-left: 4px solid #ffc107;">')
@@ -1617,6 +1776,25 @@ with tab4:
         latest_updates = get_latest_news_updates(st.session_state.focus_keyword, st.session_state.target_country)
         st.session_state.latest_updates = latest_updates
         
+        # Prepare research context
+        existing_research_context = "\n\n".join([f"Q: {d['query']}\nA: {d['result']}" 
+                                                for d in st.session_state.research_results.values()])
+        
+        # Generate SEO Introduction Paragraph
+        status.text("⏱️ Generating SEO introduction paragraph...")
+        seo_intro, intro_error = generate_seo_introduction(
+            h1,
+            st.session_state.focus_keyword,
+            existing_research_context,
+            latest_updates
+        )
+        
+        if not seo_intro:
+            st.warning("⚠️ Could not generate SEO intro - using basic intro")
+            seo_intro = f"{st.session_state.focus_keyword} is a comprehensive examination covering various aspects. This article provides detailed information to help candidates prepare effectively."
+        
+        st.session_state.seo_intro = seo_intro
+        
         existing_research_context = "\n\n".join([f"Q: {d['query']}\nA: {d['result']}" 
                                                 for d in st.session_state.research_results.values()])
         
@@ -1712,20 +1890,27 @@ with tab4:
         )
         st.session_state.generated_faqs = faqs.get('faqs', []) if faqs else []
         
-        # Final quality check
-        status.text("⏱️ Final quality check...")
+        # Final SEO & Quality Check by Expert
+        status.text("⏱️ Running comprehensive SEO quality review...")
         h1 = st.session_state.content_outline['article_title']
-        passed, message = final_coherence_check(h1, st.session_state.generated_sections, 
-                                                st.session_state.generated_faqs)
+        passed, feedback = final_seo_quality_check(
+            h1, 
+            st.session_state.seo_intro,
+            st.session_state.generated_sections, 
+            st.session_state.generated_faqs,
+            st.session_state.focus_keyword
+        )
         
         elapsed_total = time.time() - start_time
         mins_total = int(elapsed_total // 60)
         secs_total = int(elapsed_total % 60)
         
         if passed:
-            st.success(f"✅ Article Ready in {mins_total}m {secs_total}s! {message}")
+            st.success(f"✅ Article Ready in {mins_total}m {secs_total}s!")
+            st.markdown(feedback)
         else:
-            st.warning(f"⚠️ Quality check: {message}")
+            st.warning(f"⚠️ Quality Review Feedback:")
+            st.markdown(feedback)
         
         st.rerun()
     
@@ -1736,6 +1921,11 @@ with tab4:
         
         h1 = st.session_state.content_outline['article_title']
         st.markdown(f"# {h1}")
+        
+        # Display SEO Introduction
+        if st.session_state.get('seo_intro'):
+            st.markdown(f"**{st.session_state.seo_intro}**")
+            st.markdown("---")
         
         if st.session_state.latest_updates:
             st.markdown("**Latest Updates**")
@@ -1782,7 +1972,8 @@ with tab4:
         
         # Export
         st.markdown("---")
-        html = export_to_html(h1, st.session_state.generated_sections, 
+        html = export_to_html(h1, st.session_state.get('seo_intro', ''), 
+                            st.session_state.generated_sections, 
                             st.session_state.generated_faqs, st.session_state.latest_updates)
         
         col1, col2 = st.columns(2)
@@ -1792,6 +1983,8 @@ with tab4:
                              mime="text/html", use_container_width=True)
         with col2:
             text = f"{h1}\n\n"
+            if st.session_state.get('seo_intro'):
+                text += f"{st.session_state.seo_intro}\n\n"
             for sec in st.session_state.generated_sections:
                 text += f"{sec['heading']['h2']}\n\n{sec.get('content', '')}\n\n"
             st.download_button("📝 Download Text", text,
